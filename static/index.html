@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Train Your Own AI</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="menu-overlay">
+    <h1>Train Your Own AI</h1>
+    <p class="menu-subtitle">What should it learn to recognize?</p>
+    <div class="menu-buttons">
+      <button class="menu-mode-btn" data-mode="digits">Digits</button>
+      <button class="menu-mode-btn" data-mode="drawings">Drawings</button>
+    </div>
+    <div class="menu-loading" id="menu-loading" hidden>Loading...</div>
+  </div>
+
+  <div id="header-row" hidden>
+    <h1>Train Your Own AI</h1>
+    <button id="menu-btn">Menu</button>
+  </div>
+
+  <div class="row" id="main-row" hidden>
+    <canvas id="connections-canvas"></canvas>
+    <section class="pane" id="draw-pane">
+      <h2 id="draw-heading">Draw a digit</h2>
+      <div class="draw-canvas-wrap">
+        <canvas id="draw-canvas" width="560" height="560"></canvas>
+        <canvas id="saliency-canvas" width="560" height="560"></canvas>
+      </div>
+      <button id="reset-btn">Reset</button>
+    </section>
+
+    <section class="pane" id="config-pane">
+      <h2>Configure the AI</h2>
+      <div id="layers-container"></div>
+      <div class="hint">Click a node to see what makes it fire</div>
+      <div class="config-buttons">
+        <button id="add-layer-btn">+ Add layer</button>
+        <button id="remove-layer-btn">- Remove layer</button>
+      </div>
+      <button id="retrain-btn">Retrain</button>
+    </section>
+
+    <div class="pane-column" id="right-column">
+      <section class="pane" id="classification-pane">
+        <h2>Classification</h2>
+        <div id="predicted-class">-</div>
+        <div id="prob-bars"></div>
+        <div class="hint" id="explain-hint">Click a digit to see what ink would help or hurt it</div>
+        <div id="debug-options" hidden>
+          <h3>Debug</h3>
+          <button id="load-sample-btn">Load random test image</button>
+          <div id="sample-info"></div>
+        </div>
+        <button id="debug-toggle-btn">Debug</button>
+      </section>
+
+      <section class="pane" id="status-pane">
+        <h2>AI Status</h2>
+        <div id="status-text">idle</div>
+        <div class="plot-label" id="progress-label">idle</div>
+        <div class="progress-bar-track">
+          <div class="progress-bar-fill" id="progress-bar-fill"></div>
+        </div>
+        <div class="status-plots-stack">
+          <div class="status-plot">
+            <div class="plot-label">Loss</div>
+            <canvas id="loss-canvas" class="status-canvas" width="260" height="70"></canvas>
+          </div>
+          <div class="status-plot">
+            <div class="plot-label">Validation accuracy</div>
+            <canvas id="accuracy-canvas" class="status-canvas" width="260" height="70"></canvas>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

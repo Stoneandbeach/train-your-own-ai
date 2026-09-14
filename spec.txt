@@ -1,0 +1,30 @@
+--- TRAIN YOUR OWN AI OUTREACH ACTIVITY ---
+
+Abstract
+This project features a display where you can configure a machine learning (ML) algorithm - an "AI" - and then train it to recognize hand-written digits. You can draw your own digit, and see the AI try to classify it as you draw. The project gives a small insight into how an AI actually works, how it is configured, and what it can do.
+
+Specification;
+
+> Display
+A locally hosted web server displays a page with several panes;
+- draw pane: a pane where a person can draw a digit
+- config pane: a pane where configuration of the AI happens
+- AI status pane: a pane that shows AI status; current training progress, a loss plot, potentially other metrics
+- classification pane: a pane that shows the classification of what has been draw, which updates continually. It shows a normalized spectrum of probabilities with one bar for each possible digit 0-9
+
+The panes are organized such that the drawing happens on the left, the AI configuration comes next, then the classification pane with network output layer of a 10-length array with probabilities from 0-9 and bars corresponding to the probability of each, as well as a printed digit of the currently most probable class. The AI status pane is found below on a new row.
+
+The draw pane is subdivided into a grid such that it has a pixel count matching the MNIST digits.
+
+> Backend
+A server manages the display and continually updates it based on input and AI status.
+
+The server communicates with an AI training routine, which is configured and restarted whenever the Display side configuration pane is changed. AI metrics are read and fed to the AI status pane.
+
+As soon as a training epoch is completed, a checkpoint is saved. These checkpoints are used to continually predict the class of what is drawn in the draw pane.
+
+Server, display, training and inference routines can probably benefit from running in different processes, with the server orchestrating them.
+
+Pytorch is used for NN training.
+
+The configuration pane allows for adding and removing layers, and for widening and narrowing layers i.e. changing the number of nodes.

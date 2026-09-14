@@ -1,0 +1,379 @@
+body {
+  font-family: system-ui, sans-serif;
+  background: #111;
+  color: #eee;
+  margin: 0;
+  padding: 16px;
+}
+
+h1 {
+  text-align: center;
+  margin-top: 0;
+}
+
+#header-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+#header-row[hidden] {
+  display: none;
+}
+
+#menu-btn {
+  background: #444;
+}
+
+#menu-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100; /* above #connections-canvas (2) and .output-node-dot (3) */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: #111;
+}
+
+#menu-overlay[hidden] {
+  display: none;
+}
+
+.menu-subtitle {
+  color: #999;
+  margin: 0 0 8px;
+}
+
+.menu-buttons {
+  display: flex;
+  gap: 16px;
+}
+
+.menu-mode-btn {
+  font-size: 18px;
+  padding: 16px 32px;
+}
+
+.menu-loading {
+  color: #999;
+  font-size: 14px;
+}
+
+#debug-toggle-btn {
+  background: #444;
+}
+
+#debug-toggle-btn.active {
+  background: #b23a3a;
+}
+
+#debug-options {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #333;
+}
+
+#debug-options h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: #999;
+}
+
+#mnist-sample-info {
+  margin-top: 8px;
+  font-family: monospace;
+}
+
+.row {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+#main-row {
+  position: relative;
+}
+
+#connections-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.row[hidden] {
+  display: none;
+}
+
+.pane {
+  background: #1c1c1c;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 16px;
+  flex: 1;
+  min-width: 280px;
+}
+
+/* Wide enough to fit the draw-canvas-wrap (560px) plus the pane's own
+   16px/side padding, so the larger drawing surface doesn't overflow it. */
+#draw-pane {
+  min-width: 592px;
+}
+
+.pane-column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex: 1;
+  min-width: 280px;
+}
+
+.pane-column .pane {
+  min-width: 0;
+}
+
+.draw-canvas-wrap {
+  position: relative;
+  width: 560px;
+  height: 560px;
+  margin-bottom: 8px;
+}
+
+#draw-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  box-sizing: border-box;
+  background: #fff;
+  border: 1px solid #444;
+  touch-action: none;
+  cursor: crosshair;
+  display: block;
+}
+
+#saliency-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.status-canvas {
+  background: #000;
+  border: 1px solid #444;
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+}
+
+button {
+  background: #2a6df4;
+  color: white;
+  border: none;
+  padding: 8px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  margin-top: 8px;
+}
+
+button:hover {
+  background: #1e56c4;
+}
+
+button:disabled,
+button:disabled:hover {
+  background: #333;
+  color: #777;
+  cursor: not-allowed;
+}
+
+#layers-container {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  height: var(--layers-container-height, 288px);
+  margin-bottom: 8px;
+  padding-top: 4px;
+}
+
+.layer-block {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  background: #202020;
+  border: 1px solid #333;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 4px;
+  box-sizing: border-box;
+  user-select: none;
+}
+
+.layer-block .node-count {
+  color: #eee;
+  font-size: 13px;
+  font-weight: bold;
+  pointer-events: none;
+  margin-bottom: 2px;
+}
+
+.layer-block .layer-canvas {
+  display: block;
+  width: 100%;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.layer-block .resize-handle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -6px;
+  height: 12px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.layer-block .resize-handle::after {
+  content: "";
+  position: absolute;
+  left: 25%;
+  right: 25%;
+  bottom: 4px;
+  height: 4px;
+  background: #9db8f7;
+  border-radius: 2px;
+}
+
+.layer-block.dragging {
+  border-color: #4a86ff;
+}
+
+.config-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+#classification-pane {
+  position: relative;
+  padding-bottom: 52px;
+}
+
+#classification-pane #debug-toggle-btn {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  margin-top: 0;
+}
+
+#predicted-digit {
+  font-size: 64px;
+  text-align: center;
+  font-weight: bold;
+  margin-bottom: 12px;
+}
+
+.prob-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.digit-node {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.output-node-dot {
+  position: relative;
+  z-index: 3; /* above #connections-canvas (z-index: 2), so lines draw under the node */
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #556;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: bold;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+  cursor: pointer;
+}
+
+.output-node-dot.explained {
+  box-shadow: 0 0 0 3px #fff;
+}
+
+.class-label {
+  font-size: 12px;
+  color: #ccc;
+  max-width: 84px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #999;
+}
+
+.prob-bar-track {
+  flex: 1;
+  background: #333;
+  border-radius: 3px;
+  height: 14px;
+  overflow: hidden;
+}
+
+.prob-bar-fill {
+  background: #2a6df4;
+  height: 100%;
+  width: 0%;
+}
+
+#status-text {
+  margin-bottom: 8px;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.progress-bar-track {
+  background: #333;
+  border-radius: 3px;
+  height: 10px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.progress-bar-fill {
+  background: #2a6df4;
+  height: 100%;
+  width: 0%;
+  transition: width 0.2s ease;
+}
+
+.status-plots-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.plot-label {
+  font-size: 12px;
+  color: #999;
+  margin-bottom: 4px;
+}
+
