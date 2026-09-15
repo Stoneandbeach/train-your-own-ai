@@ -1,19 +1,41 @@
 // ---- Config (mirrors server/config.py) ----
-const GRID_SIZE = 28;
+// MODEL_GRID_SIZE is the network's own fixed input resolution - what
+// training, checkpoints, saliency maps, and the connection-line input count
+// all use, regardless of mode. Digits draws natively at this resolution;
+// Drawings draws DRAW_DOWNSCALE_FACTOR times finer and gets block-downscaled
+// by fill-count on the server before it ever reaches the model - see
+// server/preprocessing.py's downscale_by_fill_count and server/main.py's
+// draw_update handler. `drawGridSize` (under State, below) tracks whichever
+// of DRAW_GRID_SIZE_DIGITS/DRAWINGS applies to the current mode.
+const MODEL_GRID_SIZE = 28;
+const DRAW_DOWNSCALE_FACTOR = 2;
+const DRAW_GRID_SIZE_DIGITS = MODEL_GRID_SIZE;
+const DRAW_GRID_SIZE_DRAWINGS = MODEL_GRID_SIZE * DRAW_DOWNSCALE_FACTOR;
 const MIN_NODES_PER_LAYER = 10;
-const MAX_NODES_PER_LAYER = 40;
+// Drawings mode allows twice the hidden-layer capacity of Digits. The
+// per-node pixel sizes below (PX_PER_NODE_*/NODE_RADIUS_GAP_*) scale down by
+// the same ratio the node cap scales up (NODE_SIZE_SCALE_DRAWINGS), so
+// maxNodesPerLayer * pxPerNode - the config panel's height budget, see
+// applyNodeLayoutForMode() below - stays identical across modes: more nodes,
+// same panel height, just packed tighter (node circles keep the same
+// on-screen proportions, just smaller).
+const MAX_NODES_PER_LAYER_DIGITS = 40;
+const MAX_NODES_PER_LAYER_DRAWINGS = 80;
 const NODE_STEP = 1;
 const MIN_LAYERS = 0;
 const MAX_LAYERS = 4;
-const DEFAULT_LAYER_WIDTHS = [20, 20];
+const DEFAULT_LAYER_WIDTHS = [10];
 const DRAW_SEND_INTERVAL_MS = 80;
-const PX_PER_NODE = 18; // vertical pixels per node circle, for the resizable layer blocks (1.2x the original 15)
-const NODE_RADIUS_GAP = 3; // gap subtracted from PX_PER_NODE/2 to get circle radius (1.2x the original 2.5)
+const PX_PER_NODE_DIGITS = 18; // vertical pixels per node circle, for the resizable layer blocks (1.2x the original 15)
+const NODE_RADIUS_GAP_DIGITS = 3; // gap subtracted from PX_PER_NODE/2 to get circle radius (1.2x the original 2.5)
+const NODE_SIZE_SCALE_DRAWINGS = MAX_NODES_PER_LAYER_DIGITS / MAX_NODES_PER_LAYER_DRAWINGS;
+const PX_PER_NODE_DRAWINGS = PX_PER_NODE_DIGITS * NODE_SIZE_SCALE_DRAWINGS;
+const NODE_RADIUS_GAP_DRAWINGS = NODE_RADIUS_GAP_DIGITS * NODE_SIZE_SCALE_DRAWINGS;
 const LABEL_HEIGHT = 20; // space reserved above the node column for the count label
 const HANDLE_CLEARANCE = 10; // blank space below the last node circle, so the resize handle doesn't overlap it
 // Below this per-connection magnitude (as a fraction of the frame's max), skip
 // drawing the line entirely rather than just fading it - the input layer can
-// contribute up to GRID_SIZE^2 * MAX_NODES_PER_LAYER lines in one transition,
+// contribute up to MODEL_GRID_SIZE^2 * MAX_NODES_PER_LAYER_DRAWINGS lines in one transition,
 // and most of those are negligible, so this keeps the canvas from turning to
 // mush (and keeps redraws fast) without changing how the strong connections look.
 const CONNECTION_MIN_MAGNITUDE = 0.03;
@@ -25,8 +47,13 @@ const CONNECTION_MIN_MAGNITUDE = 0.03;
 let numClasses = 0;
 let classLabels = [];
 let currentMode = null; // "digits" | "drawings" | null (menu showing, no mode chosen yet)
-let pixels = new Array(GRID_SIZE * GRID_SIZE).fill(0);
+let drawGridSize = DRAW_GRID_SIZE_DIGITS; // resolution of `pixels` below - set per mode by updateDrawResolution()
+let pixels = new Array(drawGridSize * drawGridSize).fill(0);
 let layerWidths = [...DEFAULT_LAYER_WIDTHS];
+// Node cap/sizing for the config panel - set per mode by applyNodeLayoutForMode().
+let maxNodesPerLayer = MAX_NODES_PER_LAYER_DIGITS;
+let pxPerNode = PX_PER_NODE_DIGITS;
+let nodeRadiusGap = NODE_RADIUS_GAP_DIGITS;
 let lastSendTime = 0;
 let sendPending = false;
 let trainLossHistory = []; // training loss, one point per pushed metrics message
@@ -89,7 +116,16 @@ function sendMessage(obj) {
 // ---- Draw pane ----
 const drawCanvas = document.getElementById("draw-canvas");
 const drawCtx = drawCanvas.getContext("2d");
-const cellSize = drawCanvas.width / GRID_SIZE;
+// Cell size for painting - mode-dependent (drawGridSize), recomputed by
+// updateDrawResolution() on every mode switch. Distinct from
+// saliencyCellSize below, which always covers the canvas in
+// MODEL_GRID_SIZE cells since saliency maps come straight from the model's
+// own fixed resolution regardless of draw resolution.
+let cellSize = drawCanvas.width / drawGridSize;
+function updateDrawResolution(mode) {
+  drawGridSize = mode === "drawings" ? DRAW_GRID_SIZE_DRAWINGS : DRAW_GRID_SIZE_DIGITS;
+  cellSize = drawCanvas.width / drawGridSize;
+}
 let isDrawing = false;
 let eraseMode = false;
 let lastPointerPos = null; // {x, y} in client coords, for interpolating fast strokes
@@ -97,6 +133,7 @@ let lastPointerPos = null; // {x, y} in client coords, for interpolating fast st
 // ---- "What would help/hurt this?" saliency overlay ----
 const saliencyCanvas = document.getElementById("saliency-canvas");
 const saliencyCtx = saliencyCanvas.getContext("2d");
+const saliencyCellSize = drawCanvas.width / MODEL_GRID_SIZE;
 let explainedClass = null; // class index currently being explained, or null
 let selectedNode = null; // {layer, node} of a hidden-layer node being explained, or null
 
@@ -161,27 +198,27 @@ function drawSaliencyOverlay(map) {
     }
   }
   clearSaliencyOverlay();
-  for (let gy = 0; gy < GRID_SIZE; gy++) {
-    for (let gx = 0; gx < GRID_SIZE; gx++) {
+  for (let gy = 0; gy < MODEL_GRID_SIZE; gy++) {
+    for (let gx = 0; gx < MODEL_GRID_SIZE; gx++) {
       const norm = clamp(0.5 + map[gy][gx] / (2 * maxAbs), 0, 1);
       const magnitude = Math.abs(norm - 0.5) * 2;
       const alpha = 0.15 + magnitude * 0.6;
       saliencyCtx.fillStyle = colorForActivationAlpha(norm, alpha);
-      saliencyCtx.fillRect(gx * cellSize, gy * cellSize, cellSize, cellSize);
+      saliencyCtx.fillRect(gx * saliencyCellSize, gy * saliencyCellSize, saliencyCellSize, saliencyCellSize);
     }
   }
 }
 
 function paintCell(gx, gy, intensity, erase) {
-  if (gx < 0 || gx >= GRID_SIZE || gy < 0 || gy >= GRID_SIZE) return;
-  const idx = gy * GRID_SIZE + gx;
+  if (gx < 0 || gx >= drawGridSize || gy < 0 || gy >= drawGridSize) return;
+  const idx = gy * drawGridSize + gx;
   pixels[idx] = erase ? 0 : Math.min(255, Math.max(pixels[idx], intensity));
 }
 
 function paintPointAtClient(clientX, clientY, erase) {
   const rect = drawCanvas.getBoundingClientRect();
-  const x = ((clientX - rect.left) / rect.width) * GRID_SIZE;
-  const y = ((clientY - rect.top) / rect.height) * GRID_SIZE;
+  const x = ((clientX - rect.left) / rect.width) * drawGridSize;
+  const y = ((clientY - rect.top) / rect.height) * drawGridSize;
   const gx = Math.floor(x);
   const gy = Math.floor(y);
 
@@ -225,9 +262,9 @@ function redrawCanvas() {
   // 255 = fully inked) unchanged, since that's what's sent to the server.
   drawCtx.fillStyle = "white";
   drawCtx.fillRect(0, 0, drawCanvas.width, drawCanvas.height);
-  for (let gy = 0; gy < GRID_SIZE; gy++) {
-    for (let gx = 0; gx < GRID_SIZE; gx++) {
-      const v = pixels[gy * GRID_SIZE + gx];
+  for (let gy = 0; gy < drawGridSize; gy++) {
+    for (let gx = 0; gx < drawGridSize; gx++) {
+      const v = pixels[gy * drawGridSize + gx];
       if (v > 0) {
         const shade = 255 - v;
         drawCtx.fillStyle = `rgb(${shade},${shade},${shade})`;
@@ -301,7 +338,7 @@ window.addEventListener("pointerup", () => {
 // downstream of it (classification, activations, connection lines,
 // any active explanation), without touching training-progress state.
 function resetDrawingState() {
-  pixels = new Array(GRID_SIZE * GRID_SIZE).fill(0);
+  pixels = new Array(drawGridSize * drawGridSize).fill(0);
   redrawCanvas();
   renderClassification(new Array(numClasses).fill(0), null);
   currentActivations = [];
@@ -321,13 +358,24 @@ redrawCanvas();
 
 // ---- Config pane: vertical layer blocks, drag the bottom edge to resize ----
 const layersContainerEl = document.getElementById("layers-container");
-layersContainerEl.style.setProperty(
-  "--layers-container-height",
-  `${MAX_NODES_PER_LAYER * PX_PER_NODE + LABEL_HEIGHT + HANDLE_CLEARANCE + 8}px`
-);
+
+// maxNodesPerLayer * pxPerNode is invariant across modes by construction
+// (see NODE_SIZE_SCALE_DRAWINGS above), so the panel height this sets never
+// actually changes on a mode switch - only how densely nodes pack into it.
+function applyNodeLayoutForMode(mode) {
+  const isDrawings = mode === "drawings";
+  maxNodesPerLayer = isDrawings ? MAX_NODES_PER_LAYER_DRAWINGS : MAX_NODES_PER_LAYER_DIGITS;
+  pxPerNode = isDrawings ? PX_PER_NODE_DRAWINGS : PX_PER_NODE_DIGITS;
+  nodeRadiusGap = isDrawings ? NODE_RADIUS_GAP_DRAWINGS : NODE_RADIUS_GAP_DIGITS;
+  layersContainerEl.style.setProperty(
+    "--layers-container-height",
+    `${maxNodesPerLayer * pxPerNode + LABEL_HEIGHT + HANDLE_CLEARANCE + 8}px`
+  );
+}
+applyNodeLayoutForMode(currentMode);
 
 function nodesToHeight(nodeCount) {
-  return nodeCount * PX_PER_NODE;
+  return nodeCount * pxPerNode;
 }
 
 // v in [0, 1]: 0 -> blue, 1 -> red.
@@ -346,9 +394,9 @@ function drawLayerNodes(canvas, count, layerIndex) {
   const matches = acts && acts.length === count && currentActivations.length === layerWidths.length;
 
   const cx = canvas.width / 2;
-  const radius = Math.max(1, PX_PER_NODE / 2 - NODE_RADIUS_GAP);
+  const radius = Math.max(1, pxPerNode / 2 - nodeRadiusGap);
   for (let i = 0; i < count; i++) {
-    const cy = i * PX_PER_NODE + PX_PER_NODE / 2;
+    const cy = i * pxPerNode + pxPerNode / 2;
     ctx.fillStyle = matches ? colorForActivation(acts[i]) : "#556";
     ctx.beginPath();
     ctx.arc(cx, cy, radius, 0, 2 * Math.PI);
@@ -367,10 +415,10 @@ function drawLayerNodes(canvas, count, layerIndex) {
 // layout drawLayerNodes uses, returning the clicked node index or null if
 // the click landed in the gap between circles.
 function nodeIndexAtY(y, count) {
-  const radius = Math.max(1, PX_PER_NODE / 2 - NODE_RADIUS_GAP);
-  const i = Math.round((y - PX_PER_NODE / 2) / PX_PER_NODE);
+  const radius = Math.max(1, pxPerNode / 2 - nodeRadiusGap);
+  const i = Math.round((y - pxPerNode / 2) / pxPerNode);
   if (i < 0 || i >= count) return null;
-  const cy = i * PX_PER_NODE + PX_PER_NODE / 2;
+  const cy = i * pxPerNode + pxPerNode / 2;
   return Math.abs(y - cy) <= radius ? i : null;
 }
 
@@ -430,11 +478,11 @@ function attachResizeHandlers(handle, block, label, canvas, layerIndex) {
   const onPointerMove = (e) => {
     if (!dragging) return;
     const deltaY = e.clientY - startY;
-    const deltaSteps = Math.round(deltaY / PX_PER_NODE);
+    const deltaSteps = Math.round(deltaY / pxPerNode);
     const newCount = clamp(
       startNodeCount + deltaSteps * NODE_STEP,
       MIN_NODES_PER_LAYER,
-      MAX_NODES_PER_LAYER
+      maxNodesPerLayer
     );
     if (newCount !== layerWidths[layerIndex]) {
       layerWidths[layerIndex] = newCount;
@@ -469,7 +517,7 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
-// ---- Connection lines: GRID_SIZE^2 input pixels -> node(layer 0), node(layer i) ->
+// ---- Connection lines: MODEL_GRID_SIZE^2 input pixels -> node(layer 0), node(layer i) ->
 // node(layer i+1), and the last hidden layer (or, with no hidden layers, the
 // input pixels directly) -> the 10 output nodes in the Classification pane ----
 const mainRowEl = document.getElementById("main-row");
@@ -488,18 +536,18 @@ function getLayerNodeCenters(canvas, count) {
   const cx = rect.left + canvas.width / 2;
   const centers = [];
   for (let i = 0; i < count; i++) {
-    centers.push({ x: cx, y: rect.top + i * PX_PER_NODE + PX_PER_NODE / 2 });
+    centers.push({ x: cx, y: rect.top + i * pxPerNode + pxPerNode / 2 });
   }
   return centers;
 }
 
 // One point per input pixel, spread evenly over the drawing canvas's own
-// height (not showing GRID_SIZE^2 separate nodes - just where each pixel's
+// height (not showing MODEL_GRID_SIZE^2 separate nodes - just where each pixel's
 // connection line starts), anchored to its right edge so lines flow into the
 // Configure pane the same way every other layer transition does.
 function getInputNodeCenters() {
   const rect = drawCanvas.getBoundingClientRect();
-  const n = GRID_SIZE * GRID_SIZE;
+  const n = MODEL_GRID_SIZE * MODEL_GRID_SIZE;
   const centers = new Array(n);
   for (let i = 0; i < n; i++) {
     centers[i] = { x: rect.right, y: rect.top + ((i + 0.5) / n) * rect.height };
@@ -524,7 +572,7 @@ function edgesValid() {
   if (edgeWeights.length !== layerWidths.length + 1) return false;
   if (rawActivations.length !== layerWidths.length) return false;
   for (let i = 0; i < edgeWeights.length; i++) {
-    const expectedSrc = i === 0 ? GRID_SIZE * GRID_SIZE : layerWidths[i - 1];
+    const expectedSrc = i === 0 ? MODEL_GRID_SIZE * MODEL_GRID_SIZE : layerWidths[i - 1];
     const expectedDst = i < layerWidths.length ? layerWidths[i] : numClasses;
     const matrix = edgeWeights[i];
     if (!matrix || matrix.length !== expectedDst) return false;
@@ -725,9 +773,11 @@ function resetTrainingPlots(label) {
   setProgress(0, label);
   drawLossPlot();
   drawAccuracyPlot();
+  renderTrainingSummary({});
 }
 
 function handleTrainingStatus(msg) {
+  renderTrainingSummary(msg);
   if (msg.state === "running") {
     flashStatus("training...");
     setProgress(0, "Training...");
@@ -859,6 +909,33 @@ const debugToggleBtn = document.getElementById("debug-toggle-btn");
 const debugOptionsEl = document.getElementById("debug-options");
 const loadSampleBtn = document.getElementById("load-sample-btn");
 const sampleInfoEl = document.getElementById("sample-info");
+const trainingSummaryEl = document.getElementById("training-summary");
+
+const STOP_REASON_LABELS = {
+  early_stopping: "early stopping (validation loss stopped improving)",
+  max_epochs: "reached max epochs",
+  stopped_by_user: "stopped (new run started or mode changed)",
+};
+
+// msg: a training_status message, or {} to clear the summary (a fresh
+// training run's stats haven't landed yet, or none has ever completed in
+// this mode since the page loaded - see resetTrainingPlots()). epochs_trained
+// only appears on a training_status message once a run has actually ended
+// (idle/stopped/error - never "running"), so its absence is what gates this.
+function renderTrainingSummary(msg) {
+  if (msg.epochs_trained == null) {
+    trainingSummaryEl.textContent = "";
+    return;
+  }
+  const parts = [`epochs trained: ${msg.epochs_trained}`];
+  if (msg.best_val_accuracy != null) {
+    parts.push(`val accuracy: ${(msg.best_val_accuracy * 100).toFixed(1)}%`);
+  }
+  if (msg.stop_reason) {
+    parts.push(`stopping condition: ${STOP_REASON_LABELS[msg.stop_reason] || msg.stop_reason}`);
+  }
+  trainingSummaryEl.textContent = parts.join(" | ");
+}
 
 debugToggleBtn.addEventListener("click", () => {
   const isActive = debugToggleBtn.classList.toggle("active");
@@ -869,8 +946,28 @@ loadSampleBtn.addEventListener("click", () => {
   sendMessage({ type: "debug_load_sample" });
 });
 
+// Nearest-neighbor upscale of a flattened srcSize x srcSize array to
+// dstSize x dstSize (dstSize a whole multiple of srcSize) - used only to
+// display a native-resolution dataset sample on a finer draw canvas
+// (Drawings mode); a no-op whenever the two resolutions already match.
+function upscalePixels(src, srcSize, dstSize) {
+  if (srcSize === dstSize) return src.slice();
+  const factor = dstSize / srcSize;
+  const dst = new Array(dstSize * dstSize);
+  for (let y = 0; y < dstSize; y++) {
+    const sy = Math.floor(y / factor);
+    for (let x = 0; x < dstSize; x++) {
+      dst[y * dstSize + x] = src[sy * srcSize + Math.floor(x / factor)];
+    }
+  }
+  return dst;
+}
+
 function handleDebugSample(msg) {
-  pixels = msg.pixels.slice();
+  // msg.pixels always arrives at MODEL_GRID_SIZE (that's the dataset's own
+  // resolution) - upscale to the current draw resolution so it displays and
+  // can be drawn over consistently with the rest of the canvas.
+  pixels = upscalePixels(msg.pixels, MODEL_GRID_SIZE, drawGridSize);
   redrawCanvas();
   sampleInfoEl.textContent = `True label: ${msg.label} (compare to the prediction on the right)`;
   refreshActiveExplanation();
@@ -925,17 +1022,36 @@ function handleModeSelected(msg) {
   numClasses = msg.num_classes;
   classLabels = msg.class_names.slice();
   currentMode = msg.mode;
+  updateDrawResolution(msg.mode);
+  applyNodeLayoutForMode(msg.mode);
 
   applyModeCopy(msg.mode);
   initProbBars();
-  resetDrawingState();
-  edgeWeights = [];
-  drawConnections();
-  resetTrainingPlots(msg.checkpoint_ready ? "idle" : "no trained model yet - press Retrain");
 
+  // Make the panels visible before anything below measures their layout
+  // (canvas sizing in renderLayersList, getBoundingClientRect in
+  // drawConnections) - while #main-row is still hidden, every element in it
+  // reports zero size, which corrupts canvas pixel buffers (they render as
+  // squashed bars instead of circles until something else happens to
+  // re-render them, e.g. add/remove layer).
   menuModeBtns.forEach((b) => (b.disabled = false));
   menuLoadingEl.hidden = true;
   menuOverlayEl.hidden = true;
   headerRowEl.hidden = false;
   mainRowEl.hidden = false;
+
+  // Widths set while in the other mode may exceed this mode's own node cap
+  // (see MAX_NODES_PER_LAYER_DIGITS/DRAWINGS) - re-clamp and, if that
+  // actually changed anything, push the correction to the server the same
+  // way a manual resize would.
+  const clampedWidths = layerWidths.map((w) => clamp(w, MIN_NODES_PER_LAYER, maxNodesPerLayer));
+  const widthsChanged = clampedWidths.some((w, i) => w !== layerWidths[i]);
+  layerWidths = clampedWidths;
+  renderLayersList();
+  if (widthsChanged) sendConfigUpdate();
+
+  resetDrawingState();
+  edgeWeights = [];
+  drawConnections();
+  resetTrainingPlots(msg.checkpoint_ready ? "idle" : "no trained model yet - press Retrain");
 }

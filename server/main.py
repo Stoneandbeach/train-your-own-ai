@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import random
 
 import numpy as np
@@ -11,9 +12,11 @@ from server.config import (
     CHECKPOINT_PATH_DIGITS,
     CHECKPOINT_PATH_DRAWINGS,
     DEFAULT_LAYER_WIDTHS,
-    INPUT_SIZE,
+    DRAW_DOWNSCALE_FACTOR,
+    GRID_SIZE,
     MAX_LAYERS,
-    MAX_NODES_PER_LAYER,
+    MAX_NODES_PER_LAYER_DIGITS,
+    MAX_NODES_PER_LAYER_DRAWINGS,
     MIN_LAYERS,
     MIN_NODES_PER_LAYER,
     NODE_STEP,
@@ -23,6 +26,7 @@ from server.config import (
 from server.data import get_raw_test_samples
 from server.inference import InferenceService
 from server.model_interface import ArchitectureSpec, LayerSpec
+from server.preprocessing import downscale_by_fill_count
 from server.quickdraw_categories import CATEGORY_POOL
 from server.quickdraw_data import get_quickdraw_raw_val_samples, pick_slice_starts
 from server.training_manager import TrainingManager
@@ -77,6 +81,29 @@ def checkpoint_path_for_mode(mode: str) -> str:
     return CHECKPOINT_PATH_DRAWINGS if mode == "drawings" else CHECKPOINT_PATH_DIGITS
 
 
+def clear_checkpoints() -> None:
+    """Kiosk starts fresh every boot - no pre-trained model should carry over
+    from a previous run/visitor. Called once at startup, before any client
+    can connect and pick a mode."""
+    for path in (CHECKPOINT_PATH_DIGITS, CHECKPOINT_PATH_DRAWINGS):
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+
+
+def max_nodes_per_layer_for_mode(mode: str | None) -> int:
+    return MAX_NODES_PER_LAYER_DRAWINGS if mode == "drawings" else MAX_NODES_PER_LAYER_DIGITS
+
+
+def draw_grid_size_for_mode(mode: str) -> int:
+    """Resolution of the `pixels` array a draw_update is expected to carry.
+    Digits draws natively at the model's own GRID_SIZE; Drawings draws
+    DRAW_DOWNSCALE_FACTOR times finer and gets block-downscaled back down to
+    GRID_SIZE in the draw_update handler before it ever reaches last_pixels."""
+    return GRID_SIZE * DRAW_DOWNSCALE_FACTOR if mode == "drawings" else GRID_SIZE
+
+
 def dataset_for_mode(mode: str) -> str:
     return "quickdraw" if mode == "drawings" else "mnist"
 
@@ -92,13 +119,13 @@ def build_mode_selected_message() -> dict:
     }
 
 
-def clamp_layer_widths(widths: list[int]) -> list[int]:
+def clamp_layer_widths(widths: list[int], max_nodes: int) -> list[int]:
     widths = widths[:MAX_LAYERS] if len(widths) > MAX_LAYERS else widths
     if len(widths) < MIN_LAYERS:
         widths = list(DEFAULT_LAYER_WIDTHS)
 
     def snap(w: int) -> int:
-        w = max(MIN_NODES_PER_LAYER, min(MAX_NODES_PER_LAYER, w))
+        w = max(MIN_NODES_PER_LAYER, min(max_nodes, w))
         return round(w / NODE_STEP) * NODE_STEP
 
     return [snap(w) for w in widths]
@@ -181,11 +208,15 @@ def _fetch_quickdraw_task(class_names: list[str]) -> tuple[dict, np.ndarray, np.
 
 async def select_mode(mode: str) -> None:
     global current_mode, current_class_names, current_slice_starts
-    global last_pixels, quickdraw_val_images, quickdraw_val_labels
+    global last_pixels, quickdraw_val_images, quickdraw_val_labels, current_layer_widths
 
     assert training_manager is not None
     training_manager.stop()
     last_pixels = None
+    # Re-clamp against the new mode's own node cap - widths set while in
+    # Drawings (up to MAX_NODES_PER_LAYER_DRAWINGS) would otherwise carry an
+    # out-of-range value into Digits (MAX_NODES_PER_LAYER_DIGITS) or vice versa.
+    current_layer_widths = clamp_layer_widths(current_layer_widths, max_nodes_per_layer_for_mode(mode))
 
     if mode == "drawings":
         class_names = random.sample(CATEGORY_POOL, QUICKDRAW_NUM_CLASSES)
@@ -208,6 +239,7 @@ async def select_mode(mode: str) -> None:
 @app.on_event("startup")
 async def startup() -> None:
     global training_manager, mnist_test_images, mnist_test_labels
+    clear_checkpoints()
     loop = asyncio.get_running_loop()
     training_manager = TrainingManager(loop, handle_training_message)
     mnist_test_images, mnist_test_labels = await asyncio.to_thread(get_raw_test_samples)
@@ -239,15 +271,22 @@ async def ws_endpoint(websocket: WebSocket) -> None:
 
             if msg_type == "draw_update":
                 pixels = msg.get("pixels")
-                if not isinstance(pixels, list) or len(pixels) != INPUT_SIZE:
+                if current_mode is None or not isinstance(pixels, list):
                     continue
-                last_pixels = pixels
+                draw_grid_size = draw_grid_size_for_mode(current_mode)
+                if len(pixels) != draw_grid_size * draw_grid_size:
+                    continue
+                if current_mode == "drawings":
+                    image = np.array(pixels, dtype=np.float32).reshape(draw_grid_size, draw_grid_size)
+                    last_pixels = downscale_by_fill_count(image, DRAW_DOWNSCALE_FACTOR).flatten().tolist()
+                else:
+                    last_pixels = pixels
                 await classify_and_broadcast()
 
             elif msg_type == "config_update":
                 widths = msg.get("layers", [])
                 if isinstance(widths, list) and all(isinstance(w, int) for w in widths):
-                    current_layer_widths = clamp_layer_widths(widths)
+                    current_layer_widths = clamp_layer_widths(widths, max_nodes_per_layer_for_mode(current_mode))
                     await websocket.send_text(
                         json.dumps({"type": "config_ack", "layers": current_layer_widths})
                     )

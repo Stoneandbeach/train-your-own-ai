@@ -49,3 +49,18 @@ def center_by_mass(image: np.ndarray) -> np.ndarray:
     center of mass sits at the center of the grid."""
     shift_y, shift_x = compute_center_shift(image)
     return shift_image(image, shift_y, shift_x)
+
+
+def downscale_by_fill_count(image: np.ndarray, block_size: int) -> np.ndarray:
+    """image: (H, W) float32, H and W each divisible by block_size, where a
+    pixel > 0 counts as "filled" (matches the draw canvas's own convention:
+    0 = blank, up to 255 = inked). Returns an (H/block_size, W/block_size)
+    array where each output pixel is 255 * (filled count in its block) /
+    block_size**2 - a coverage-based downscale (how much of each block is
+    inked) rather than an intensity average, so a corner-clipping stroke
+    reads as a partial grey rather than either fully on or off."""
+    height, width = image.shape
+    out_h, out_w = height // block_size, width // block_size
+    blocks = image.reshape(out_h, block_size, out_w, block_size)
+    filled_counts = (blocks > 0).sum(axis=(1, 3))
+    return (filled_counts / (block_size * block_size) * 255).astype(np.float32)

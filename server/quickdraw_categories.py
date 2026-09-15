@@ -2,13 +2,20 @@
 
 ALL_CATEGORIES is the full set of 345 Quick Draw dataset categories (from
 https://github.com/googlecreativelab/quickdraw-dataset categories.txt, fetched
-2026-09-08). EXCLUDED_CATEGORIES removes categories that are pure geometric
-primitives, abstract concepts/patterns rather than drawable objects, abstract
-multi-object scenes, or body-part fragments that are hard to tell apart as simple
-outlines - curated with the user so CATEGORY_POOL stays recognizable and fun to
-draw for a walk-up general-public kiosk. Tune the pool by editing EXCLUDED_CATEGORIES,
-not by hand-editing ALL_CATEGORIES.
+2026-09-08) - kept only as a reference set, to validate CATEGORY_POOL against.
+
+CATEGORY_POOL is loaded from QUICKDRAW_CURATED_CATEGORIES_CSV (see
+server/config.py): a hand-picked subset, curated with the user for being
+recognizable and fun to draw for a walk-up general-public kiosk - a much
+smaller, more deliberate list than "all 345 minus a few exclusions" (the
+project's original approach). Only that CSV's "english" column is used for
+now; a "swedish" column is already there for future localization. Tune the
+pool by editing that CSV, not this file.
 """
+
+import csv
+
+from server.config import QUICKDRAW_CURATED_CATEGORIES_CSV
 
 ALL_CATEGORIES: list[str] = [
     'aircraft carrier',
@@ -358,32 +365,17 @@ ALL_CATEGORIES: list[str] = [
     'zigzag',
 ]
 
-EXCLUDED_CATEGORIES: frozenset[str] = frozenset({
-    'animal migration',
-    'beach',
-    'beard',
-    'camouflage',
-    'circle',
-    'elbow',
-    'garden',
-    'goatee',
-    'hexagon',
-    'hurricane',
-    'knee',
-    'line',
-    'moustache',
-    'ocean',
-    'octagon',
-    'pond',
-    'rain',
-    'river',
-    'spreadsheet',
-    'square',
-    'squiggle',
-    'toe',
-    'triangle',
-    'zigzag',
-})
+def _load_category_pool() -> list[str]:
+    with open(QUICKDRAW_CURATED_CATEGORIES_CSV, newline="", encoding="utf-8") as f:
+        names = [row["english"].strip() for row in csv.DictReader(f)]
+    unknown = [name for name in names if name not in ALL_CATEGORIES]
+    if unknown:
+        raise ValueError(
+            f"{QUICKDRAW_CURATED_CATEGORIES_CSV} has english names not in the Quick "
+            f"Draw dataset (typo?): {unknown}"
+        )
+    return names
 
-CATEGORY_POOL: list[str] = [c for c in ALL_CATEGORIES if c not in EXCLUDED_CATEGORIES]
+
+CATEGORY_POOL: list[str] = _load_category_pool()
 

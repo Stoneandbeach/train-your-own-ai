@@ -1,7 +1,12 @@
 """Kiosk-wide constants."""
 
 MIN_NODES_PER_LAYER = 10
-MAX_NODES_PER_LAYER = 40
+# Drawings mode allows twice the hidden-layer capacity of Digits - see
+# server/main.py's max_nodes_per_layer_for_mode() and static/app.js's mirror
+# of these two constants, which also scales the on-screen node size/spacing
+# down by the same ratio so the config panel packs tighter without growing.
+MAX_NODES_PER_LAYER_DIGITS = 40
+MAX_NODES_PER_LAYER_DRAWINGS = 80
 NODE_STEP = 1
 MIN_LAYERS = 0
 MAX_LAYERS = 4
@@ -14,15 +19,36 @@ INPUT_SIZE = GRID_SIZE * GRID_SIZE
 NUM_CLASSES = 10
 
 BATCH_SIZE = 128
+# Upper bound only - in practice training stops earlier via early stopping
+# (EARLY_STOPPING_PATIENCE below), which is what actually governs run length.
 NUM_EPOCHS = 20
 LEARNING_RATE = 1e-3
+
+# Stop training once EARLY_STOPPING_PATIENCE consecutive epochs pass with no
+# improvement in validation loss - see server/train_worker.py. The checkpoint
+# on disk always holds the best (lowest val_loss) epoch's weights, not
+# whatever the most recent epoch happened to produce.
+EARLY_STOPPING_PATIENCE = 3
+
+# Dropout probability applied after each hidden layer's ReLU, Drawings mode
+# only - see server/mlp_classifier.py's build_mlp()/dropout_rate_for_dataset().
+# Digits mode stays at implicit 0.0 (a true no-op for nn.Dropout), so its
+# capacity-vs-overfitting demo (see TRAIN_SUBSET_SIZE below) is unchanged.
+# 0.3 rather than the more common 0.5: layers can be configured as narrow as
+# MIN_NODES_PER_LAYER (10 nodes), where dropping half of an already-small
+# layer per forward pass during training is aggressive; 0.3 still meaningfully
+# regularizes the small (600-image) training set without crippling that end
+# of the configurable range.
+DRAWINGS_DROPOUT_RATE = 0.3
 
 # Deliberately small: with the full 60k-image MNIST training set, even a
 # single 10-node hidden layer clears >90% val accuracy, so visitors can't see
 # model capacity matter. Training on a small, fixed subset instead makes
 # capacity visible: too little capacity underfits, too much overfits this
-# small a set (no regularization is added on purpose - that tradeoff is part
-# of the demo). The held-out validation set stays the full MNIST test split.
+# small a set. In Digits mode no regularization is added on purpose - that
+# tradeoff is part of the demo; Drawings mode gets dropout (see
+# DRAWINGS_DROPOUT_RATE above), which softens but doesn't eliminate it there.
+# The held-out validation set stays the full MNIST test split.
 TRAIN_SUBSET_SIZE = 600
 TRAIN_SUBSET_SEED = 42
 
@@ -37,7 +63,14 @@ CHECKPOINT_PATH_DIGITS = "checkpoints/checkpoint_digits.pt"
 CHECKPOINT_PATH_DRAWINGS = "checkpoints/checkpoint_drawings.pt"
 DATA_ROOT = "data"
 
-DEFAULT_LAYER_WIDTHS = [20, 20]
+DEFAULT_LAYER_WIDTHS = [10]
+
+# Drawings mode only: the live draw canvas is this many times finer than the
+# model's own GRID_SIZE (thinner strokes, more precision), block-downscaled
+# by fill-count before ever reaching the model - see
+# server/preprocessing.py's downscale_by_fill_count and server/main.py's
+# draw_update handler. Digits mode draws natively at GRID_SIZE, untouched.
+DRAW_DOWNSCALE_FACTOR = 2
 
 # Occlusion-based saliency ("why did the model predict this digit?"): side
 # length in pixels of each square patch that gets zeroed out and re-predicted.
@@ -66,3 +99,11 @@ QUICKDRAW_FETCH_TIMEOUT = 10  # seconds, per HTTP request
 # visually verifying a real fetched sample - see the verification script
 # referenced in server/quickdraw_data.py's module docstring.
 QUICKDRAW_INVERT_PIXELS = False
+
+# Hand-curated (with the user) subset of Quick Draw categories to draw random
+# classes from - see server/quickdraw_categories.py, which loads this CSV at
+# import time rather than hardcoding the pool, so re-curating (including
+# adding languages beyond the "english" column it currently reads) is just an
+# edit to this file. Path is relative to the working directory the server is
+# run from (repo root - see README), matching DATA_ROOT/QUICKDRAW_DATA_ROOT above.
+QUICKDRAW_CURATED_CATEGORIES_CSV = "quickdraw_curated_list.csv"
