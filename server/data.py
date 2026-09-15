@@ -1,11 +1,15 @@
 """MNIST dataset loading/caching."""
 
+import logging
+
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms
 
 from server.config import BATCH_SIZE, DATA_ROOT, GRID_SIZE, TRAIN_SUBSET_SEED, TRAIN_SUBSET_SIZE
+
+logger = logging.getLogger(__name__)
 
 
 def _downsample(image: np.ndarray, size: int) -> np.ndarray:
@@ -23,6 +27,30 @@ def _to_tensor(pic) -> torch.Tensor:
     arr = np.array(pic, dtype=np.float32) / 255.0
     arr = _downsample(arr, GRID_SIZE)
     return torch.from_numpy(arr)
+
+
+def _mnist_already_present() -> bool:
+    try:
+        datasets.MNIST(root=DATA_ROOT, train=True, download=False)
+        return True
+    except RuntimeError:
+        return False
+
+
+def prewarm_mnist() -> None:
+    """Ensures MNIST is downloaded and cached locally under DATA_ROOT - a
+    no-op if it already is. Mirrors server/quickdraw_data.py's
+    prewarm_categories() for the same reason (the kiosk runs offline on the
+    event day - see server/main.py's startup, which calls this before it
+    ever calls get_raw_test_samples()/get_data_loaders() below). One
+    download=True call covers both splits: torchvision's MNIST.download()
+    always fetches all four raw files (train + test, images + labels)
+    together regardless of which split `train=` requests - the split only
+    affects what gets loaded into memory afterward, not what gets
+    downloaded."""
+    already_present = _mnist_already_present()
+    datasets.MNIST(root=DATA_ROOT, train=True, download=True)
+    logger.info("MNIST prewarm done: %s", "already cached" if already_present else "downloaded")
 
 
 def get_data_loaders() -> tuple[DataLoader, DataLoader]:

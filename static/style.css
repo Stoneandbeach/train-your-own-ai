@@ -2,8 +2,10 @@ body {
   font-family: system-ui, sans-serif;
   background: #111;
   color: #eee;
-  margin: 0;
+  margin: 0 auto;
   padding: 16px;
+  max-width: 1920px;
+  box-sizing: border-box;
 }
 
 h1 {
@@ -11,19 +13,21 @@ h1 {
   margin-top: 0;
 }
 
+/* Column, not row: stacks the title above the Menu button so align-items:
+   center lines up their horizontal centers (was align-items centering them
+   vertically as a side-by-side pair, which doesn't center the button under
+   the title's own midpoint). */
 #header-row {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 16px;
+  gap: 4px;
+  padding-bottom: 16px;
 }
 
 #header-row[hidden] {
   display: none;
-}
-
-#menu-btn {
-  background: #444;
 }
 
 #menu-overlay {
@@ -53,8 +57,27 @@ h1 {
 }
 
 .menu-mode-btn {
-  font-size: 18px;
-  padding: 16px 32px;
+  font-size: 27px;
+  padding: 24px 48px;
+}
+
+.menu-language-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.lang-btn {
+  font-size: 16px;
+  padding: 8px 16px;
+  margin-top: 0;
+}
+
+/* Same inverted-color pattern as #debug-toggle-btn.active - marks the
+   currently active selection using only colors already in the palette. */
+.lang-btn.active {
+  background: #9C6114; /* orange */
+  color: #D6D2C4; /* beige */
 }
 
 .menu-loading {
@@ -62,12 +85,33 @@ h1 {
   font-size: 14px;
 }
 
-#debug-toggle-btn {
-  background: #444;
+/* Inactive: standard button colors (beige/orange). Active: inverted, using
+   the same two colors, so the on/off toggle state stays visually distinct
+   without introducing a color outside the palette. */
+#debug-toggle-btn.active {
+  background: #9C6114; /* orange */
+  color: #D6D2C4; /* beige */
 }
 
-#debug-toggle-btn.active {
-  background: #b23a3a;
+/* Right-aligns the (already last, i.e. bottom) Debug button within the AI
+   Status pane, without converting the whole pane to flex - that would drop
+   block-layout margin collapsing between its other children and shift their
+   spacing too, which nothing here asked for. */
+/* Pinned to the pane's own bottom-right corner rather than flowing after
+   the last visible element (so its position doesn't shift depending on
+   whether #training-plots/#debug-options are showing) - padding-bottom
+   below reserves room for it since, being absolutely positioned, it no
+   longer pushes the pane's own height out itself. */
+#status-pane {
+  position: relative;
+  padding-bottom: 80px;
+}
+
+#status-pane #debug-toggle-btn {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  margin-top: 0;
 }
 
 #debug-options {
@@ -119,9 +163,39 @@ h1 {
   min-width: 280px;
 }
 
-/* Wide enough to fit the draw-canvas-wrap (560px) plus the pane's own
-   16px/side padding, so the larger drawing surface doesn't overflow it. */
+/* Never wraps to a second line regardless of pane width/title length - this
+   is what keeps every pane's h2 the same rendered height, which .pane-
+   button-row (below) then relies on for cross-pane top alignment. */
+.pane h2 {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Shared "row just under the title" for Draw/Config/Classification - same
+   min-height and margin in every pane using it (Reset in Draw, +Add/-Remove
+   in Config via .config-buttons, the predicted-class readout in
+   Classification) is what makes the content below it - the draw canvas, the
+   layer columns, the classification output - all start at the same height
+   across panes. min-height matches a button's own rendered height so the
+   row looks/aligns the same even when its content (predicted-class) isn't
+   a button. */
+.pane-button-row {
+  display: flex;
+  align-items: center;
+  min-height: 49px;
+  margin-bottom: 8px;
+}
+
+.pane-button-row button {
+  margin-top: 0;
+}
+
+/* Sized to its content (the 560px draw-canvas-wrap plus the pane's own
+   16px/side padding) rather than flex-growing like the other panes - the
+   drawing surface controls the pane's width, not the other way around. */
 #draw-pane {
+  flex: 0 0 auto;
   min-width: 592px;
 }
 
@@ -171,35 +245,61 @@ h1 {
   margin-top: 8px;
 }
 
+/* Padding + font-size both 1.5x the original (8px/14px -> 12px/21px), which
+   scales the button's rendered height by the same ~1.5x factor.
+   box-sizing: border-box so the 2px border doesn't grow that height further -
+   keeps it matching .progress-bar-track's own height (see below). */
 button {
-  background: #2a6df4;
-  color: white;
-  border: none;
-  padding: 8px 14px;
+  background: #D6D2C4; /* beige */
+  color: #9C6114; /* orange */
+  border: 4px solid #9C6114; /* orange, 2x the original 2px */
+  box-sizing: border-box;
+  padding: 12px 21px;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 21px;
+  font-weight: bold;
   margin-top: 8px;
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.4);
 }
 
 button:hover {
-  background: #1e56c4;
+  filter: brightness(0.92);
+}
+
+/* Pressed-looking: shadow tucks in and the button nudges down into it,
+   instead of just changing color, for a more physically button-like feel. */
+button:active {
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+  transform: translateY(2px);
 }
 
 button:disabled,
 button:disabled:hover {
   background: #333;
   color: #777;
+  border-color: #555;
+  box-shadow: none;
   cursor: not-allowed;
 }
 
+/* Always MAX_LAYERS (4) equal-width columns - see renderLayersList() in
+   app.js - so a config with fewer layers leaves visible empty column(s) to
+   the right (.layer-slot-empty) rather than the real blocks stretching to
+   fill the row. This is what lets .config-buttons below line up under the
+   exact same column grid: same slot count, same gap, so a button is always
+   pixel-identical in width to a real layer column. */
+/* No padding-top - its content starts flush with the container's own top
+   edge, on purpose: this is what aligns the top of the layer columns with
+   the draw canvas and the classification output in the panes alongside it
+   (see .pane-button-row above, which every one of those panes' content
+   sits directly under). */
 #layers-container {
   display: flex;
   align-items: flex-start;
   gap: 6px;
   height: var(--layers-container-height, 288px);
   margin-bottom: 8px;
-  padding-top: 4px;
 }
 
 .layer-block {
@@ -217,6 +317,11 @@ button:disabled:hover {
   user-select: none;
 }
 
+.layer-slot-empty {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
 .layer-block .node-count {
   color: #eee;
   font-size: 13px;
@@ -232,53 +337,83 @@ button:disabled:hover {
   cursor: pointer;
 }
 
+/* height/bottom stay in the "straddles the block's bottom border, offset by
+   half its own height" relationship as before - see HANDLE_CLEARANCE in
+   app.js, which reserves enough room above the border for this to not
+   overlap the bottom node circle. */
 .layer-block .resize-handle {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: -6px;
-  height: 12px;
+  bottom: -14px;
+  height: 28px;
   cursor: ns-resize;
   touch-action: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
+/* Light blue vertical-resize glyph - a rectangle with a triangle capping
+   each end, point up on top and point down on the bottom - drawn as one
+   clipped shape so there's no font-rendering involved. */
 .layer-block .resize-handle::after {
   content: "";
-  position: absolute;
-  left: 25%;
-  right: 25%;
-  bottom: 4px;
-  height: 4px;
-  background: #9db8f7;
-  border-radius: 2px;
+  position: relative;
+  width: 16px;
+  height: 26px;
+  background: #B9D3DC; /* light blue */
+  pointer-events: none;
+  clip-path: polygon(
+    50% 0%,
+    100% 25%,
+    65% 25%,
+    65% 75%,
+    100% 75%,
+    50% 100%,
+    0% 75%,
+    35% 75%,
+    35% 25%,
+    0% 25%
+  );
 }
 
 .layer-block.dragging {
-  border-color: #4a86ff;
+  border-color: #000080; /* dark blue, matching the resize handle's arrow */
 }
 
+/* Mirrors #layers-container's own grid exactly (same slot count, same gap)
+   so a slot here is always pixel-identical in width to a real layer column -
+   see renderConfigButtons() in app.js, which places +Add in the empty column
+   where the next layer would go and -Remove under the rightmost layer. */
 .config-buttons {
   display: flex;
-  gap: 8px;
+  gap: 6px;
+  margin-bottom: 8px;
 }
 
-#classification-pane {
-  position: relative;
-  padding-bottom: 52px;
+.config-button-slot {
+  flex: 1 1 0;
+  min-width: 0;
 }
 
-#classification-pane #debug-toggle-btn {
-  position: absolute;
-  right: 16px;
-  bottom: 16px;
+.config-button-slot button {
+  width: 100%;
   margin-top: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-left: 4px;
+  padding-right: 4px;
 }
 
-#predicted-digit {
-  font-size: 64px;
-  text-align: center;
+/* Sits inside .pane-button-row (vertically centered by that row's own
+   align-items: center), sized to fill that row's 49px min-height nicely
+   without needing its own margin. */
+#predicted-class {
+  font-size: 28px;
   font-weight: bold;
-  margin-bottom: 12px;
+  line-height: 1;
 }
 
 .prob-bar-row {
@@ -315,10 +450,18 @@ button:disabled:hover {
   box-shadow: 0 0 0 3px #fff;
 }
 
+/* Fixed width (not just capped) so every row's prob-bar-track starts at the
+   same x position regardless of that row's own class name length -
+   --class-label-width is set once per initProbBars() call (see app.js) to
+   the longest current class name's length in ch units (~1 character wide),
+   so it's always exactly as wide as the longest name actually in use this
+   round. flex-shrink: 0 keeps that width from being squeezed narrower than
+   intended if the pane gets tight on space. */
 .class-label {
-  font-size: 12px;
+  font-size: 18px;
   color: #ccc;
-  max-width: 84px;
+  width: var(--class-label-width, 84px);
+  flex-shrink: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -326,7 +469,7 @@ button:disabled:hover {
 
 .hint {
   margin-top: 8px;
-  font-size: 12px;
+  font-size: 18px;
   color: #999;
 }
 
@@ -344,31 +487,60 @@ button:disabled:hover {
   width: 0%;
 }
 
-#status-text {
-  margin-bottom: 8px;
-  font-family: monospace;
-  font-size: 12px;
+#train-btn {
+  margin-top: 0;
+  margin-bottom: 10px;
 }
 
+/* Same height as a button (button's own 12px vertical padding + ~25px line
+   height at the current 21px font-size, see the base `button` rule above)
+   so it reads as a peer action element, not a thin strip. */
 .progress-bar-track {
-  background: #333;
-  border-radius: 3px;
-  height: 10px;
+  position: relative;
+  background: #000080; /* dark blue, unfilled */
+  border-radius: 4px;
+  height: 49px;
   overflow: hidden;
   margin-bottom: 10px;
 }
 
 .progress-bar-fill {
-  background: #2a6df4;
+  background: #B9D3DC; /* light blue, filled */
   height: 100%;
   width: 0%;
   transition: width 0.2s ease;
+}
+
+/* Overlaid on the fill (not stacked above/below it) - see server/main.py's
+   training_status handling and setProgress() in app.js for what text lands
+   here ("Training...", "Training complete.", etc). The label can sit over
+   either the dark-blue (unfilled) or light-blue (filled) region, or straddle
+   both at once - orange is the one color in the palette with reasonable
+   contrast against both (white/beige wash out on the light-blue side, dark
+   blue disappears on the dark-blue side), with a light shadow to help it
+   stand out against the paler fill. */
+.progress-bar-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: bold;
+  color: #9C6114; /* orange */
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
 }
 
 .status-plots-stack {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  margin-top: 10px;
+}
+
+.status-plots-stack[hidden] {
+  display: none;
 }
 
 .plot-label {

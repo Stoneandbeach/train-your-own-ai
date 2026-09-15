@@ -5,11 +5,23 @@ on ArchitectureSpec.dataset.
 
 Each category lives in Google's public bucket as a single .npy file of shape
 (N, 784) uint8 - often 90MB+ for a popular category - so every fetch here
-uses an HTTP Range request for just the bytes needed (a small header probe,
-then the exact image slice), never a full download. See _parse_npy_header for
-the byte layout (confirmed against a live sample of quickdraw_dataset/full/
-numpy_bitmap/cat.npy: NPY format v1.0, 6-byte magic + 2-byte version + 2-byte
-little-endian header-dict length at offset 8).
+uses an HTTP Range request for just the bytes needed, never a full download.
+See _parse_npy_header for the byte layout (confirmed against a live sample of
+quickdraw_dataset/full/numpy_bitmap/cat.npy: NPY format v1.0, 6-byte magic +
+2-byte version + 2-byte little-endian header-dict length at offset 8).
+
+Caching is two-tier: the first time a category is used, its first
+QUICKDRAW_CACHE_SIZE_PER_CATEGORY images are range-fetched once and saved to
+disk as a single local block (see ensure_local_cache) - every slice pick
+after that, this run or a future one, is served straight from that local
+block with no network call at all, as long as it falls within it (it always
+does - pick_slice_start() only ever picks within the cached block's bounds).
+
+The kiosk runs offline on the actual event day, so server/main.py's startup
+calls prewarm_categories() for the whole curated pool up front - only the
+very first server start (or after adding a new category to the pool) does
+any real downloading; every later start just finds every block already on
+disk and skips straight past it.
 
 Pixel-polarity verification (0=blank vs 0=inked, relative to this project's
 own 0=blank/255=inked convention): run this module directly -
@@ -21,6 +33,7 @@ config.py can be set correctly before this module is wired into training.
 
 import ast
 import json
+import logging
 import os
 import random
 import struct
@@ -36,12 +49,15 @@ from server.config import (
     BATCH_SIZE,
     GRID_SIZE,
     QUICKDRAW_BASE_URL,
+    QUICKDRAW_CACHE_SIZE_PER_CATEGORY,
     QUICKDRAW_DATA_ROOT,
     QUICKDRAW_FETCH_TIMEOUT,
     QUICKDRAW_INVERT_PIXELS,
     QUICKDRAW_TRAIN_PER_CLASS,
     QUICKDRAW_VAL_PER_CLASS,
 )
+
+logger = logging.getLogger(__name__)
 
 # Quick Draw bitmaps are natively 28x28 with no resizing step here (unlike
 # MNIST's downsampling path in data.py) - the user confirmed Drawings mode
@@ -152,15 +168,84 @@ def get_category_total(category: str) -> int:
     return total
 
 
+def _category_cache_dir(category: str) -> str:
+    safe = category.replace(" ", "_").replace("/", "_")
+    return os.path.join(QUICKDRAW_DATA_ROOT, safe)
+
+
+def _local_cache_path(category: str) -> str:
+    return os.path.join(_category_cache_dir(category), "cache.npy")
+
+
+def ensure_local_cache(category: str) -> np.ndarray:
+    """Returns this category's locally-cached image block: its first
+    QUICKDRAW_CACHE_SIZE_PER_CATEGORY images, or all of them if it has fewer.
+    Downloads and saves that block (one range-fetch, never the full category
+    file) the first time this category is used; every call after that, this
+    run or a future one, loads straight from disk - see the module
+    docstring. pick_slice_start() and fetch_category_slice() both go through
+    this, so neither ever needs the network once a category's block exists
+    locally."""
+    cache_path = _local_cache_path(category)
+    if os.path.exists(cache_path):
+        return np.load(cache_path)
+
+    data_offset, total = get_header_info(category)
+    cache_size = min(total, QUICKDRAW_CACHE_SIZE_PER_CATEGORY)
+    byte_start = data_offset
+    byte_end = data_offset + cache_size * _BYTES_PER_IMAGE - 1
+    raw = _fetch_range(_npy_url(category), byte_start, byte_end)
+    images = np.frombuffer(raw, dtype=np.uint8).reshape(cache_size, GRID_SIZE, GRID_SIZE).copy()
+
+    os.makedirs(_category_cache_dir(category), exist_ok=True)
+    np.save(cache_path, images)
+    return images
+
+
+def prewarm_categories(categories: list[str]) -> None:
+    """Calls ensure_local_cache() for every category up front, so the kiosk
+    can go fully offline afterward - see server/main.py's startup, which
+    calls this for the whole curated pool. Already-cached categories cost
+    just a file-exists check each, so a repeat call (every server restart
+    after the first) is fast. A single category's fetch failing (no network,
+    a renamed/missing category, ...) is logged and skipped rather than
+    aborting the rest of the pool or crashing startup - better to come up
+    with 49 of 50 categories ready than fail to start at all."""
+    logger.info("prewarming %d Quick Draw categories...", len(categories))
+    fetched = 0
+    failed = []
+    for i, category in enumerate(categories, start=1):
+        cache_path = _local_cache_path(category)
+        already_cached = os.path.exists(cache_path)
+        try:
+            ensure_local_cache(category)
+        except Exception:
+            logger.warning("failed to prewarm Quick Draw category %r", category, exc_info=True)
+            failed.append(category)
+            continue
+        if not already_cached:
+            fetched += 1
+            logger.info("prewarmed %d/%d: %s", i, len(categories), category)
+    logger.info(
+        "Quick Draw prewarm done: %d newly downloaded, %d already cached, %d failed%s",
+        fetched,
+        len(categories) - fetched - len(failed),
+        len(failed),
+        f" ({failed})" if failed else "",
+    )
+
+
 def pick_slice_start(category: str, block_size: int) -> int:
     """A random start offset such that [start, start + block_size) is valid
-    for `category`. Unseeded - callers wanting a fresh slice each time (e.g.
-    a Drawings-mode reroll) get one; this module has no opinion on when a
-    fresh draw is warranted, that's the orchestrator's call."""
-    total = get_category_total(category)
-    if total < block_size:
-        raise ValueError(f"category {category!r} only has {total} images, need {block_size}")
-    return random.randrange(0, total - block_size + 1)
+    for `category`, within its locally-cached block (downloading that block
+    first if this category hasn't been used yet - see ensure_local_cache).
+    Unseeded - callers wanting a fresh slice each time (e.g. a Drawings-mode
+    reroll) get one; this module has no opinion on when a fresh draw is
+    warranted, that's the orchestrator's call."""
+    cached_total = len(ensure_local_cache(category))
+    if cached_total < block_size:
+        raise ValueError(f"category {category!r} only has {cached_total} cached images, need {block_size}")
+    return random.randrange(0, cached_total - block_size + 1)
 
 
 def pick_slice_starts(categories: list[str]) -> dict[str, int]:
@@ -175,33 +260,17 @@ def pick_slice_starts(categories: list[str]) -> dict[str, int]:
     return {category: pick_slice_start(category, block) for category in categories}
 
 
-def _category_cache_dir(category: str) -> str:
-    safe = category.replace(" ", "_").replace("/", "_")
-    return os.path.join(QUICKDRAW_DATA_ROOT, safe)
-
-
 def fetch_category_slice(category: str, start: int, count: int) -> np.ndarray:
     """Returns (count, GRID_SIZE, GRID_SIZE) uint8 images for `category`,
-    starting at image index `start` - range-fetched from GCS (never a full
-    category file) and disk-cached so a repeated (category, start, count)
-    triple doesn't re-fetch over the network."""
-    cache_dir = _category_cache_dir(category)
-    cache_path = os.path.join(cache_dir, f"{start}_{count}.npy")
-    if os.path.exists(cache_path):
-        return np.load(cache_path)
-
-    data_offset, total = get_header_info(category)
-    if start + count > total:
-        raise ValueError(f"requested images [{start}:{start + count}) but {category!r} only has {total}")
-
-    byte_start = data_offset + start * _BYTES_PER_IMAGE
-    byte_end = byte_start + count * _BYTES_PER_IMAGE - 1
-    raw = _fetch_range(_npy_url(category), byte_start, byte_end)
-    images = np.frombuffer(raw, dtype=np.uint8).reshape(count, GRID_SIZE, GRID_SIZE).copy()
-
-    os.makedirs(cache_dir, exist_ok=True)
-    np.save(cache_path, images)
-    return images
+    starting at image index `start` - sliced out of this category's locally-
+    cached block (see ensure_local_cache), downloading that block first if
+    this category hasn't been used yet."""
+    cached = ensure_local_cache(category)
+    if start + count > len(cached):
+        raise ValueError(
+            f"requested images [{start}:{start + count}) but only {len(cached)} are cached for {category!r}"
+        )
+    return cached[start : start + count]
 
 
 def _to_float_tensor(images: np.ndarray) -> torch.Tensor:

@@ -1,85 +1,96 @@
 <!doctype html>
-<html lang="en">
+<html lang="sv">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Train Your Own AI</title>
+  <!-- Static text below is the Swedish default (see app.js: currentLanguage
+       starts "sv") so there's no flash of English while i18n.js/app.js load
+       and run - JS re-applies the same text via t(), it just also handles
+       every later language switch and everything JS creates dynamically. -->
+  <title id="page-title-tag">Träna din egen AI</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div id="menu-overlay">
-    <h1>Train Your Own AI</h1>
-    <p class="menu-subtitle">What should it learn to recognize?</p>
-    <div class="menu-buttons">
-      <button class="menu-mode-btn" data-mode="digits">Digits</button>
-      <button class="menu-mode-btn" data-mode="drawings">Drawings</button>
+    <div class="menu-language-row">
+      <button class="lang-btn" data-lang="en">English</button>
+      <button class="lang-btn active" data-lang="sv">Svenska</button>
     </div>
-    <div class="menu-loading" id="menu-loading" hidden>Loading...</div>
+    <h1 id="menu-title">Träna din egen AI</h1>
+    <p class="menu-subtitle" id="menu-subtitle">Vad ska den lära sig känna igen?</p>
+    <div class="menu-buttons">
+      <button class="menu-mode-btn" data-mode="digits">Siffror</button>
+      <button class="menu-mode-btn" data-mode="drawings">Teckningar</button>
+    </div>
+    <div class="menu-loading" id="menu-loading" hidden>Laddar...</div>
   </div>
 
   <div id="header-row" hidden>
-    <h1>Train Your Own AI</h1>
-    <button id="menu-btn">Menu</button>
+    <h1 id="header-title">Träna din egen AI</h1>
+    <button id="menu-btn">Tillbaka till menyn</button>
   </div>
 
   <div class="row" id="main-row" hidden>
     <canvas id="connections-canvas"></canvas>
     <section class="pane" id="draw-pane">
-      <h2 id="draw-heading">Draw a digit</h2>
+      <h2 id="draw-heading">Rita en siffra</h2>
+      <div class="pane-button-row">
+        <button id="reset-btn">Rensa</button>
+      </div>
       <div class="draw-canvas-wrap">
         <canvas id="draw-canvas" width="560" height="560"></canvas>
         <canvas id="saliency-canvas" width="560" height="560"></canvas>
       </div>
-      <button id="reset-btn">Reset</button>
     </section>
 
     <section class="pane" id="config-pane">
-      <h2>Configure the AI</h2>
+      <h2 id="config-heading">Konfigurera AI:n</h2>
+      <div class="config-buttons pane-button-row" id="config-buttons"></div>
+      <button id="add-layer-btn" hidden>+ Lägg till</button>
+      <button id="remove-layer-btn" hidden>&minus; Ta bort</button>
       <div id="layers-container"></div>
-      <div class="hint">Click a node to see what makes it fire</div>
-      <div class="config-buttons">
-        <button id="add-layer-btn">+ Add layer</button>
-        <button id="remove-layer-btn">- Remove layer</button>
-      </div>
-      <button id="retrain-btn">Retrain</button>
+      <div class="hint" id="config-hint">Klicka på en nod för att se vad som får den att aktiveras</div>
     </section>
 
     <div class="pane-column" id="right-column">
       <section class="pane" id="classification-pane">
-        <h2>Classification</h2>
-        <div id="predicted-class">-</div>
-        <div id="prob-bars"></div>
-        <div class="hint" id="explain-hint">Click a digit to see what ink would help or hurt it</div>
-        <div id="debug-options" hidden>
-          <h3>Debug</h3>
-          <div id="training-summary"></div>
-          <button id="load-sample-btn">Load random test image</button>
-          <div id="sample-info"></div>
+        <h2 id="classification-heading">Klassificering</h2>
+        <div class="pane-button-row">
+          <div id="predicted-class">-</div>
         </div>
-        <button id="debug-toggle-btn">Debug</button>
+        <div id="prob-bars"></div>
+        <div class="hint" id="explain-hint">Klicka på en siffra för att se vilket bläck som skulle hjälpa eller stjälpa den</div>
       </section>
 
       <section class="pane" id="status-pane">
-        <h2>AI Status</h2>
-        <div id="status-text">idle</div>
-        <div class="plot-label" id="progress-label">idle</div>
+        <h2 id="status-heading">AI-status</h2>
+        <button id="train-btn">Träna</button>
         <div class="progress-bar-track">
           <div class="progress-bar-fill" id="progress-bar-fill"></div>
+          <span class="progress-bar-label" id="progress-label">inaktiv</span>
         </div>
-        <div class="status-plots-stack">
+        <div class="status-plots-stack" id="training-plots" hidden>
           <div class="status-plot">
-            <div class="plot-label">Loss</div>
+            <div class="plot-label" id="loss-plot-label">Förlust</div>
             <canvas id="loss-canvas" class="status-canvas" width="260" height="70"></canvas>
           </div>
           <div class="status-plot">
-            <div class="plot-label">Validation accuracy</div>
+            <div class="plot-label" id="accuracy-plot-label">Valideringsnoggrannhet</div>
             <canvas id="accuracy-canvas" class="status-canvas" width="260" height="70"></canvas>
           </div>
         </div>
+        <div id="debug-options" hidden>
+          <h3 id="debug-heading">Felsökning</h3>
+          <div id="training-summary"></div>
+          <button id="load-sample-btn">Ladda slumpmässig testbild</button>
+          <div id="sample-info"></div>
+        </div>
+        <button id="debug-toggle-btn">Felsökning</button>
       </section>
     </div>
   </div>
 
+  <script src="i18n.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

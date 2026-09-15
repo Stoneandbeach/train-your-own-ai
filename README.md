@@ -11,19 +11,18 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Pre-download MNIST once (also happens automatically on first Retrain, but do
-this ahead of time if venue wifi is unreliable):
-
-```
-python -c "from server.data import get_data_loaders; get_data_loaders()"
-```
-
-Drawings mode fetches Quick Draw category slices on demand (a small range
-request per category, not the full multi-100MB files - see
-`server/quickdraw_data.py`) and caches them under `data/quickdraw/`, the
-first time each category is picked. There's no pre-warm-everything script
-yet - if venue wifi on the night is a concern, that's an easy thing to add
-once caching itself is proven out (ask for it).
+The kiosk is meant to run fully offline on the night - the server prewarms
+both MNIST (`data/MNIST/`) and every curated Quick Draw category (a bounded
+~4MB-per-category range request each, not the full multi-100MB files - see
+`server/quickdraw_data.py`) into `data/quickdraw/` on startup, before it
+starts accepting connections. So: **start the server at least once while
+you still have internet** (e.g. the day before, or during setup) and let it
+finish - watch the console for `MNIST prewarm done: ...`, then
+`Quick Draw prewarm done: ... already cached, 0 failed`, then
+`Application startup complete`. Everything is then cached on disk for good;
+any later start, including on the actual event day with no network at all,
+finds it all already local and skips straight past it in a couple of
+seconds.
 
 ## Run
 

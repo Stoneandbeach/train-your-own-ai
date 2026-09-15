@@ -8,9 +8,16 @@ CATEGORY_POOL is loaded from QUICKDRAW_CURATED_CATEGORIES_CSV (see
 server/config.py): a hand-picked subset, curated with the user for being
 recognizable and fun to draw for a walk-up general-public kiosk - a much
 smaller, more deliberate list than "all 345 minus a few exclusions" (the
-project's original approach). Only that CSV's "english" column is used for
-now; a "swedish" column is already there for future localization. Tune the
-pool by editing that CSV, not this file.
+project's original approach). Tune the pool by editing that CSV, not this
+file.
+
+CATEGORY_TRANSLATIONS_SV maps each pool category's english name to the same
+CSV row's swedish column - server/main.py sends both an english class_names
+and a class_names_sv built from this to the frontend, which displays
+whichever matches the visitor's chosen UI language (see static/app.js). The
+english names stay canonical everywhere else (fetching from Google's bucket,
+checkpoint class-name matching, training) - only display uses the
+translation.
 """
 
 import csv
@@ -365,17 +372,27 @@ ALL_CATEGORIES: list[str] = [
     'zigzag',
 ]
 
-def _load_category_pool() -> list[str]:
+def _load_curated_categories() -> tuple[list[str], dict[str, str]]:
     with open(QUICKDRAW_CURATED_CATEGORIES_CSV, newline="", encoding="utf-8") as f:
-        names = [row["english"].strip() for row in csv.DictReader(f)]
+        rows = list(csv.DictReader(f))
+
+    names = [row["english"].strip() for row in rows]
     unknown = [name for name in names if name not in ALL_CATEGORIES]
     if unknown:
         raise ValueError(
             f"{QUICKDRAW_CURATED_CATEGORIES_CSV} has english names not in the Quick "
             f"Draw dataset (typo?): {unknown}"
         )
-    return names
+
+    translations_sv = {row["english"].strip(): row["swedish"].strip() for row in rows}
+    missing_sv = [name for name, sv in translations_sv.items() if not sv]
+    if missing_sv:
+        raise ValueError(f"{QUICKDRAW_CURATED_CATEGORIES_CSV} is missing swedish translations for: {missing_sv}")
+
+    return names, translations_sv
 
 
-CATEGORY_POOL: list[str] = _load_category_pool()
+CATEGORY_POOL: list[str]
+CATEGORY_TRANSLATIONS_SV: dict[str, str]
+CATEGORY_POOL, CATEGORY_TRANSLATIONS_SV = _load_curated_categories()
 

@@ -23,12 +23,12 @@ from server.config import (
     NUM_CLASSES,
     QUICKDRAW_NUM_CLASSES,
 )
-from server.data import get_raw_test_samples
+from server.data import get_raw_test_samples, prewarm_mnist
 from server.inference import InferenceService
 from server.model_interface import ArchitectureSpec, LayerSpec
 from server.preprocessing import downscale_by_fill_count
-from server.quickdraw_categories import CATEGORY_POOL
-from server.quickdraw_data import get_quickdraw_raw_val_samples, pick_slice_starts
+from server.quickdraw_categories import CATEGORY_POOL, CATEGORY_TRANSLATIONS_SV
+from server.quickdraw_data import get_quickdraw_raw_val_samples, pick_slice_starts, prewarm_categories
 from server.training_manager import TrainingManager
 
 logging.basicConfig(level=logging.INFO)
@@ -108,6 +108,21 @@ def dataset_for_mode(mode: str) -> str:
     return "quickdraw" if mode == "drawings" else "mnist"
 
 
+def class_names_sv_for(class_names: list[str], mode: str) -> list[str]:
+    """Swedish display names for class_names, same order - digit labels
+    ("0".."9") need no translating; Quick Draw category names are looked up
+    in CATEGORY_TRANSLATIONS_SV (built from quickdraw_curated_list.csv's own
+    "swedish" column - see server/quickdraw_categories.py). The .get(name,
+    name) fallback never actually triggers today (Drawings' class_names are
+    always sampled from CATEGORY_POOL, which is exactly
+    CATEGORY_TRANSLATIONS_SV's key set - see select_mode) but keeps this from
+    ever crashing on prod-would-be-fine-degraded-instead if that ever stops
+    holding."""
+    if mode != "drawings":
+        return list(class_names)
+    return [CATEGORY_TRANSLATIONS_SV.get(name, name) for name in class_names]
+
+
 def build_mode_selected_message() -> dict:
     assert current_mode is not None
     return {
@@ -115,6 +130,7 @@ def build_mode_selected_message() -> dict:
         "mode": current_mode,
         "num_classes": len(current_class_names),
         "class_names": list(current_class_names),
+        "class_names_sv": class_names_sv_for(current_class_names, current_mode),
         "checkpoint_ready": inference.is_ready,
     }
 
@@ -242,6 +258,17 @@ async def startup() -> None:
     clear_checkpoints()
     loop = asyncio.get_running_loop()
     training_manager = TrainingManager(loop, handle_training_message)
+    # The kiosk runs offline on the event day - pull in everything both
+    # modes' training data needs now, while there's still a network, rather
+    # than lazily on whatever a visitor happens to pick first. Both only do
+    # real work the very first time the server starts (or, for Quick Draw,
+    # after a new category is added to the pool); every later start finds it
+    # all already cached on disk - see prewarm_mnist()/prewarm_categories()'s
+    # docstrings. Blocks the server from accepting connections until done,
+    # which is exactly what we want: "server is up" should mean "kiosk is
+    # actually ready."
+    await asyncio.to_thread(prewarm_mnist)
+    await asyncio.to_thread(prewarm_categories, CATEGORY_POOL)
     mnist_test_images, mnist_test_labels = await asyncio.to_thread(get_raw_test_samples)
     # No mode chosen yet at boot (current_mode is None) - nothing to reload
     # here, select_mode() does the first reload once a visitor picks a mode.
@@ -327,12 +354,14 @@ async def ws_endpoint(websocket: WebSocket) -> None:
                     sample_label = str(int(mnist_test_labels[idx]))
                 last_pixels = sample_pixels
 
+                sample_label_sv = class_names_sv_for([sample_label], current_mode)[0]
                 await websocket.send_text(
                     json.dumps(
                         {
                             "type": "debug_sample",
                             "pixels": sample_pixels,
                             "label": sample_label,
+                            "label_sv": sample_label_sv,
                         }
                     )
                 )

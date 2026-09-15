@@ -32,7 +32,12 @@ const NODE_SIZE_SCALE_DRAWINGS = MAX_NODES_PER_LAYER_DIGITS / MAX_NODES_PER_LAYE
 const PX_PER_NODE_DRAWINGS = PX_PER_NODE_DIGITS * NODE_SIZE_SCALE_DRAWINGS;
 const NODE_RADIUS_GAP_DRAWINGS = NODE_RADIUS_GAP_DIGITS * NODE_SIZE_SCALE_DRAWINGS;
 const LABEL_HEIGHT = 20; // space reserved above the node column for the count label
-const HANDLE_CLEARANCE = 10; // blank space below the last node circle, so the resize handle doesn't overlap it
+// The resize handle (.resize-handle in style.css) is 28px tall and straddles
+// the block's bottom border via bottom:-14px, so it reaches 14px up into
+// this clearance - below that it starts overlapping the bottom node circle,
+// badly so in Drawings mode (9px/node - the icon would cover the node
+// almost entirely). +2px so it's a clearance, not an exact touch.
+const MIN_HANDLE_CLEARANCE = 16;
 // Below this per-connection magnitude (as a fraction of the frame's max), skip
 // drawing the line entirely rather than just fading it - the input layer can
 // contribute up to MODEL_GRID_SIZE^2 * MAX_NODES_PER_LAYER_DRAWINGS lines in one transition,
@@ -40,12 +45,33 @@ const HANDLE_CLEARANCE = 10; // blank space below the last node circle, so the r
 // mush (and keeps redraws fast) without changing how the strong connections look.
 const CONNECTION_MIN_MAGNITUDE = 0.03;
 
+// ---- Localization ----
+// TRANSLATIONS comes from i18n.js, loaded before this file - see that file
+// for every UI string in both languages.
+let currentLanguage = "sv"; // default in all cases - see setLanguage() below
+
+function t(key, ...args) {
+  const dict = TRANSLATIONS[currentLanguage] || TRANSLATIONS.en;
+  const value = key in dict ? dict[key] : TRANSLATIONS.en[key];
+  return typeof value === "function" ? value(...args) : value;
+}
+
 // ---- State ----
 // numClasses/classLabels describe the current task (10 digits, or 8 Quick
 // Draw category names) - set from the server's mode_selected message. Every
-// loop that used to hardcode 10/"0"-"9" reads these instead.
+// loop that used to hardcode 10/"0"-"9" reads these instead. classLabelsSv
+// is the same set of classes translated to Swedish (server/main.py's
+// class_names_sv - a no-op passthrough for Digits, since digit labels don't
+// need translating) - currentClassLabels() below picks whichever matches
+// currentLanguage for display, everywhere classLabels used to be read
+// directly.
 let numClasses = 0;
 let classLabels = [];
+let classLabelsSv = [];
+
+function currentClassLabels() {
+  return currentLanguage === "sv" && classLabelsSv.length === classLabels.length ? classLabelsSv : classLabels;
+}
 let currentMode = null; // "digits" | "drawings" | null (menu showing, no mode chosen yet)
 let drawGridSize = DRAW_GRID_SIZE_DIGITS; // resolution of `pixels` below - set per mode by updateDrawResolution()
 let pixels = new Array(drawGridSize * drawGridSize).fill(0);
@@ -54,6 +80,11 @@ let layerWidths = [...DEFAULT_LAYER_WIDTHS];
 let maxNodesPerLayer = MAX_NODES_PER_LAYER_DIGITS;
 let pxPerNode = PX_PER_NODE_DIGITS;
 let nodeRadiusGap = NODE_RADIUS_GAP_DIGITS;
+// Blank space below the last node circle, so the resize handle (see
+// .resize-handle in style.css) doesn't overlap it - a full node height
+// (tracks pxPerNode rather than being its own fixed constant), floored at
+// MIN_HANDLE_CLEARANCE for modes where a node height alone isn't enough.
+let handleClearance = Math.max(PX_PER_NODE_DIGITS, MIN_HANDLE_CLEARANCE);
 let lastSendTime = 0;
 let sendPending = false;
 let trainLossHistory = []; // training loss, one point per pushed metrics message
@@ -84,7 +115,6 @@ ws.onmessage = (event) => {
       handleTrainingStatus(msg);
       break;
     case "checkpoint_loaded":
-      flashStatus(`AI updated (epoch ${msg.epoch})`);
       edgeWeights = msg.edge_weights || [];
       drawConnections();
       break;
@@ -360,16 +390,21 @@ redrawCanvas();
 const layersContainerEl = document.getElementById("layers-container");
 
 // maxNodesPerLayer * pxPerNode is invariant across modes by construction
-// (see NODE_SIZE_SCALE_DRAWINGS above), so the panel height this sets never
-// actually changes on a mode switch - only how densely nodes pack into it.
+// (see NODE_SIZE_SCALE_DRAWINGS above); the panel height below adds
+// handleClearance on top of that, which - now that it tracks pxPerNode - is
+// NOT quite invariant across modes (18px in Digits vs the 16px floor in
+// Drawings, see MIN_HANDLE_CLEARANCE), so the panel is a couple px taller in
+// Digits mode. Small enough not to bother decoupling it from the per-block
+// clearance term below.
 function applyNodeLayoutForMode(mode) {
   const isDrawings = mode === "drawings";
   maxNodesPerLayer = isDrawings ? MAX_NODES_PER_LAYER_DRAWINGS : MAX_NODES_PER_LAYER_DIGITS;
   pxPerNode = isDrawings ? PX_PER_NODE_DRAWINGS : PX_PER_NODE_DIGITS;
   nodeRadiusGap = isDrawings ? NODE_RADIUS_GAP_DRAWINGS : NODE_RADIUS_GAP_DIGITS;
+  handleClearance = Math.max(pxPerNode, MIN_HANDLE_CLEARANCE);
   layersContainerEl.style.setProperty(
     "--layers-container-height",
-    `${maxNodesPerLayer * pxPerNode + LABEL_HEIGHT + HANDLE_CLEARANCE + 8}px`
+    `${maxNodesPerLayer * pxPerNode + LABEL_HEIGHT + handleClearance + 8}px`
   );
 }
 applyNodeLayoutForMode(currentMode);
@@ -428,13 +463,28 @@ function updateLayerVisuals() {
   });
 }
 
+// Always renders exactly MAX_LAYERS columns - the first layerWidths.length
+// are real layer blocks, the rest are invisible .layer-slot-empty spacers -
+// so a config with fewer than MAX_LAYERS layers leaves real, fixed-width
+// empty column(s) to the right instead of the real blocks stretching to fill
+// the row. renderConfigButtons() below relies on this: it lays out the same
+// MAX_LAYERS grid (same slot count, same gap) so +Add/-Remove always land at
+// exactly the width and position of a real layer column.
 function renderLayersList() {
   layersContainerEl.innerHTML = "";
   layerCanvases = [];
-  layerWidths.forEach((width, i) => {
+  for (let i = 0; i < MAX_LAYERS; i++) {
+    if (i >= layerWidths.length) {
+      const spacer = document.createElement("div");
+      spacer.className = "layer-slot-empty";
+      layersContainerEl.appendChild(spacer);
+      continue;
+    }
+
+    const width = layerWidths[i];
     const block = document.createElement("div");
     block.className = "layer-block";
-    block.style.height = `${nodesToHeight(width) + LABEL_HEIGHT + HANDLE_CLEARANCE}px`;
+    block.style.height = `${nodesToHeight(width) + LABEL_HEIGHT + handleClearance}px`;
 
     const label = document.createElement("span");
     label.className = "node-count";
@@ -457,7 +507,7 @@ function renderLayersList() {
     attachResizeHandlers(handle, block, label, canvas, i);
 
     layersContainerEl.appendChild(block);
-  });
+  }
 
   // Blocks are flexed to share the container's full width; their rendered
   // width is only known once they're in the DOM, so size+draw each canvas
@@ -467,7 +517,7 @@ function renderLayersList() {
     drawLayerNodes(canvas, layerWidths[i], i);
   });
   drawConnections();
-  updateLayerButtonStates();
+  renderConfigButtons();
 }
 
 function attachResizeHandlers(handle, block, label, canvas, layerIndex) {
@@ -486,7 +536,7 @@ function attachResizeHandlers(handle, block, label, canvas, layerIndex) {
     );
     if (newCount !== layerWidths[layerIndex]) {
       layerWidths[layerIndex] = newCount;
-      block.style.height = `${nodesToHeight(newCount) + LABEL_HEIGHT + HANDLE_CLEARANCE}px`;
+      block.style.height = `${nodesToHeight(newCount) + LABEL_HEIGHT + handleClearance}px`;
       label.textContent = newCount;
       drawLayerNodes(canvas, newCount, layerIndex);
       drawConnections();
@@ -651,10 +701,30 @@ function sendConfigUpdate() {
 
 const addLayerBtn = document.getElementById("add-layer-btn");
 const removeLayerBtn = document.getElementById("remove-layer-btn");
+const configButtonsEl = document.getElementById("config-buttons");
 
-function updateLayerButtonStates() {
-  addLayerBtn.disabled = layerWidths.length >= MAX_LAYERS;
-  removeLayerBtn.disabled = layerWidths.length <= MIN_LAYERS;
+// Places +Add in the empty column where the next layer would land (slot
+// layerWidths.length, only while under MAX_LAYERS) and -Remove under the
+// rightmost existing layer (slot layerWidths.length - 1) - on the same
+// MAX_LAYERS-slot grid renderLayersList() draws #layers-container with, so
+// both buttons are always exactly as wide as a real layer column. At 0
+// layers only +Add shows (in slot 0); at MAX_LAYERS layers only -Remove
+// shows (in the last slot).
+function renderConfigButtons() {
+  configButtonsEl.innerHTML = "";
+  const layerCount = layerWidths.length;
+  for (let slot = 0; slot < MAX_LAYERS; slot++) {
+    const slotEl = document.createElement("div");
+    slotEl.className = "config-button-slot";
+    if (slot === layerCount && layerCount < MAX_LAYERS) {
+      addLayerBtn.hidden = false;
+      slotEl.appendChild(addLayerBtn);
+    } else if (slot === layerCount - 1) {
+      removeLayerBtn.hidden = false;
+      slotEl.appendChild(removeLayerBtn);
+    }
+    configButtonsEl.appendChild(slotEl);
+  }
 }
 
 addLayerBtn.addEventListener("click", () => {
@@ -671,9 +741,9 @@ removeLayerBtn.addEventListener("click", () => {
   sendConfigUpdate();
 });
 
-document.getElementById("retrain-btn").addEventListener("click", () => {
+document.getElementById("train-btn").addEventListener("click", () => {
   sendMessage({ type: "retrain" });
-  resetTrainingPlots("Training...");
+  resetTrainingPlots("trainingEllipsis");
   resetExplain();
   resetSelectedNode();
 });
@@ -694,8 +764,15 @@ const probBarsEl = document.getElementById("prob-bars");
 // since classLabels[d] already equals "0".."9".
 function initProbBars() {
   probBarsEl.innerHTML = "";
+  const labels = currentClassLabels();
+  // Every .class-label gets fixed to the width of the longest name in this
+  // round (in ch, ~1 character wide) via a shared CSS custom property, so
+  // every row's prob-bar-track lines up at the same x position - see
+  // .class-label in style.css.
+  const maxLabelLength = labels.reduce((max, label) => Math.max(max, label.length), 0);
+  probBarsEl.style.setProperty("--class-label-width", `${maxLabelLength}ch`);
   for (let d = 0; d < numClasses; d++) {
-    const label = classLabels[d];
+    const label = labels[d];
     const glyph = label.length ? label[0].toUpperCase() : "?";
     const row = document.createElement("div");
     row.className = "prob-bar-row";
@@ -712,10 +789,18 @@ function initProbBars() {
   }
 }
 
+// Remembered so a language switch can replay this exact classification (via
+// initProbBars() rebuilding the rows, then this re-running) instead of the
+// bars going blank until the next live classification tick.
+let lastClassificationProbs = null;
+let lastClassificationPredicted = null;
+
 // Unlike the hidden-layer nodes (normalized per forward pass), the output
 // nodes use the softmax probability directly as the 0-1 color value, so the
 // color is comparable across separate classifications, not just within one.
 function renderClassification(probs, predicted) {
+  lastClassificationProbs = probs;
+  lastClassificationPredicted = predicted;
   for (let d = 0; d < numClasses; d++) {
     const p = probs[d] || 0;
     const color = colorForActivation(p);
@@ -727,11 +812,10 @@ function renderClassification(probs, predicted) {
     if (dot) dot.style.background = color;
   }
   predictedClassEl.textContent =
-    predicted === null || predicted === undefined ? "-" : classLabels[predicted];
+    predicted === null || predicted === undefined ? "-" : currentClassLabels()[predicted];
 }
 
 // ---- AI status pane ----
-const statusTextEl = document.getElementById("status-text");
 const progressLabelEl = document.getElementById("progress-label");
 const progressBarFillEl = document.getElementById("progress-bar-fill");
 
@@ -755,22 +839,29 @@ const { ctx: lossCtx, w: lossW, h: lossH } = setupCanvasHiDPI(lossCanvas);
 const accuracyCanvas = document.getElementById("accuracy-canvas");
 const { ctx: accuracyCtx, w: accuracyW, h: accuracyH } = setupCanvasHiDPI(accuracyCanvas);
 
-function flashStatus(text) {
-  statusTextEl.textContent = text;
-}
+// key is a TRANSLATIONS key (see i18n.js), not resolved text - remembered in
+// currentProgressKey so refreshProgressLabel() (called on a language switch)
+// can re-render this exact same state in the new language.
+let currentProgressKey = "idle";
 
-function setProgress(fraction, label) {
+function setProgress(fraction, key) {
   progressBarFillEl.style.width = `${Math.round(clamp(fraction, 0, 1) * 100)}%`;
-  progressLabelEl.textContent = label;
+  currentProgressKey = key;
+  progressLabelEl.textContent = t(key);
 }
 
-// Shared by the Retrain button and a mode switch (both start a fresh
-// training history from the visitor's point of view).
-function resetTrainingPlots(label) {
+function refreshProgressLabel() {
+  progressLabelEl.textContent = t(currentProgressKey);
+}
+
+// Shared by the Train button and a mode switch (both start a fresh
+// training history from the visitor's point of view). key is a
+// TRANSLATIONS key, same as setProgress().
+function resetTrainingPlots(key) {
   trainLossHistory = [];
   valLossPoints = [];
   accuracyHistory = [];
-  setProgress(0, label);
+  setProgress(0, key);
   drawLossPlot();
   drawAccuracyPlot();
   renderTrainingSummary({});
@@ -779,16 +870,11 @@ function resetTrainingPlots(label) {
 function handleTrainingStatus(msg) {
   renderTrainingSummary(msg);
   if (msg.state === "running") {
-    flashStatus("training...");
-    setProgress(0, "Training...");
+    setProgress(0, "trainingEllipsis");
   } else if (msg.state === "error") {
-    flashStatus(`error: ${msg.message || "unknown"}`);
-    setProgress(0, "Training error.");
+    setProgress(0, "trainingError");
   } else if (msg.state === "idle") {
-    flashStatus(msg.state);
-    setProgress(1, "Training done.");
-  } else {
-    flashStatus(msg.state);
+    setProgress(1, "trainingComplete");
   }
 }
 
@@ -800,16 +886,11 @@ function handleTrainingMetrics(msg) {
   if (msg.accuracy != null) {
     accuracyHistory.push(msg.accuracy);
   }
-  flashStatus(
-    `epoch ${msg.epoch + 1}/${msg.total_epochs}  loss=${msg.loss.toFixed(3)}` +
-      (msg.val_loss != null ? `  val_loss=${msg.val_loss.toFixed(3)}` : "") +
-      (msg.accuracy != null ? `  accuracy=${(msg.accuracy * 100).toFixed(1)}%` : "")
-  );
   // Each epoch pushes a mid-epoch sample (no val_loss yet) and one
   // end-of-epoch sample (val_loss present); use that to tell how far
   // through the current epoch training is.
   const fraction = msg.val_loss != null ? (msg.epoch + 1) / msg.total_epochs : msg.epoch / msg.total_epochs;
-  setProgress(fraction, "Training...");
+  setProgress(fraction, "trainingEllipsis");
   drawLossPlot();
   drawAccuracyPlot();
 }
@@ -910,12 +991,18 @@ const debugOptionsEl = document.getElementById("debug-options");
 const loadSampleBtn = document.getElementById("load-sample-btn");
 const sampleInfoEl = document.getElementById("sample-info");
 const trainingSummaryEl = document.getElementById("training-summary");
+const trainingPlotsEl = document.getElementById("training-plots");
 
-const STOP_REASON_LABELS = {
-  early_stopping: "early stopping (validation loss stopped improving)",
-  max_epochs: "reached max epochs",
-  stopped_by_user: "stopped (new run started or mode changed)",
+const STOP_REASON_KEYS = {
+  early_stopping: "stopReasonEarlyStopping",
+  max_epochs: "stopReasonMaxEpochs",
+  stopped_by_user: "stopReasonStoppedByUser",
 };
+
+// Remembered so a language switch can re-render the same summary via
+// renderTrainingSummary(lastTrainingStatusMsg) instead of leaving stale text
+// in the old language.
+let lastTrainingStatusMsg = {};
 
 // msg: a training_status message, or {} to clear the summary (a fresh
 // training run's stats haven't landed yet, or none has ever completed in
@@ -923,16 +1010,18 @@ const STOP_REASON_LABELS = {
 // only appears on a training_status message once a run has actually ended
 // (idle/stopped/error - never "running"), so its absence is what gates this.
 function renderTrainingSummary(msg) {
+  lastTrainingStatusMsg = msg;
   if (msg.epochs_trained == null) {
     trainingSummaryEl.textContent = "";
     return;
   }
-  const parts = [`epochs trained: ${msg.epochs_trained}`];
+  const parts = [t("epochsTrained", msg.epochs_trained)];
   if (msg.best_val_accuracy != null) {
-    parts.push(`val accuracy: ${(msg.best_val_accuracy * 100).toFixed(1)}%`);
+    parts.push(t("valAccuracy", (msg.best_val_accuracy * 100).toFixed(1)));
   }
   if (msg.stop_reason) {
-    parts.push(`stopping condition: ${STOP_REASON_LABELS[msg.stop_reason] || msg.stop_reason}`);
+    const reasonKey = STOP_REASON_KEYS[msg.stop_reason];
+    parts.push(t("stoppingCondition", reasonKey ? t(reasonKey) : msg.stop_reason));
   }
   trainingSummaryEl.textContent = parts.join(" | ");
 }
@@ -940,6 +1029,7 @@ function renderTrainingSummary(msg) {
 debugToggleBtn.addEventListener("click", () => {
   const isActive = debugToggleBtn.classList.toggle("active");
   debugOptionsEl.hidden = !isActive;
+  trainingPlotsEl.hidden = !isActive;
 });
 
 loadSampleBtn.addEventListener("click", () => {
@@ -963,14 +1053,28 @@ function upscalePixels(src, srcSize, dstSize) {
   return dst;
 }
 
+// Remembered (both languages, like class_names/class_names_sv) so a
+// language switch can re-render this line via refreshDebugSampleInfo()
+// instead of leaving stale text in the old language.
+let lastDebugSampleLabel = null;
+let lastDebugSampleLabelSv = null;
+
 function handleDebugSample(msg) {
   // msg.pixels always arrives at MODEL_GRID_SIZE (that's the dataset's own
   // resolution) - upscale to the current draw resolution so it displays and
   // can be drawn over consistently with the rest of the canvas.
   pixels = upscalePixels(msg.pixels, MODEL_GRID_SIZE, drawGridSize);
   redrawCanvas();
-  sampleInfoEl.textContent = `True label: ${msg.label} (compare to the prediction on the right)`;
+  lastDebugSampleLabel = msg.label;
+  lastDebugSampleLabelSv = msg.label_sv;
+  refreshDebugSampleInfo();
   refreshActiveExplanation();
+}
+
+function refreshDebugSampleInfo() {
+  if (lastDebugSampleLabel == null) return;
+  const label = currentLanguage === "sv" && lastDebugSampleLabelSv != null ? lastDebugSampleLabelSv : lastDebugSampleLabel;
+  sampleInfoEl.textContent = t("trueLabel", label);
 }
 
 // ---- Menu / mode selection ----
@@ -981,25 +1085,74 @@ const menuModeBtns = document.querySelectorAll(".menu-mode-btn");
 const drawHeadingEl = document.getElementById("draw-heading");
 const explainHintEl = document.getElementById("explain-hint");
 
-const MODE_COPY = {
-  digits: {
-    drawHeading: "Draw a digit",
-    explainHint: "Click a digit to see what ink would help or hurt it",
-    debugButtonLabel: "Load random MNIST test image",
-  },
-  drawings: {
-    drawHeading: "Draw something",
-    explainHint: "Click a class to see what ink would help or hurt it",
-    debugButtonLabel: "Load random test drawing",
-  },
-};
-
+// Mode-dependent copy - keyed off TRANSLATIONS' own drawHeading*/explainHint*/
+// loadSample* naming (see i18n.js), so adding a mode just means adding the
+// matching *Digits/*Drawings keys there, nothing to change here.
 function applyModeCopy(mode) {
-  const copy = MODE_COPY[mode] || MODE_COPY.digits;
-  drawHeadingEl.textContent = copy.drawHeading;
-  explainHintEl.textContent = copy.explainHint;
-  loadSampleBtn.textContent = copy.debugButtonLabel;
+  const suffix = mode === "drawings" ? "Drawings" : "Digits";
+  drawHeadingEl.textContent = t(`drawHeading${suffix}`);
+  explainHintEl.textContent = t(`explainHint${suffix}`);
+  loadSampleBtn.textContent = t(`loadSample${suffix}`);
 }
+
+// Re-renders every piece of UI chrome text in the current language - the
+// static headings/buttons/hints below, plus everything that depends on
+// runtime state (applyModeCopy needs currentMode; the rest replay whatever
+// they last rendered via their own remembered key/message - see
+// refreshProgressLabel, renderTrainingSummary, refreshDebugSampleInfo).
+// Called once at load (the static HTML already matches the Swedish default,
+// so this is a no-op paint the first time - see index.html) and again on
+// every language switch.
+function applyTranslations() {
+  document.title = t("pageTitle");
+  document.getElementById("menu-title").textContent = t("pageTitle");
+  document.getElementById("header-title").textContent = t("pageTitle");
+  document.getElementById("menu-subtitle").textContent = t("menuSubtitle");
+  menuModeBtns.forEach((btn) => {
+    btn.textContent = t(btn.dataset.mode === "drawings" ? "drawingsMode" : "digitsMode");
+  });
+  menuLoadingEl.textContent = t("loading");
+  document.getElementById("menu-btn").textContent = t("backToMenu");
+  document.getElementById("reset-btn").textContent = t("reset");
+  document.getElementById("config-heading").textContent = t("configureHeading");
+  addLayerBtn.textContent = t("addLayer");
+  removeLayerBtn.textContent = t("removeLayer");
+  document.getElementById("config-hint").textContent = t("configHint");
+  document.getElementById("classification-heading").textContent = t("classificationHeading");
+  document.getElementById("status-heading").textContent = t("aiStatusHeading");
+  document.getElementById("loss-plot-label").textContent = t("lossLabel");
+  document.getElementById("accuracy-plot-label").textContent = t("validationAccuracyLabel");
+  document.getElementById("debug-heading").textContent = t("debugHeading");
+  debugToggleBtn.textContent = t("debugToggle");
+
+  applyModeCopy(currentMode);
+
+  // Rebuilds the classification pane's rows against currentClassLabels(),
+  // which is now the newly-selected language's names (see class_names_sv in
+  // server/main.py) - then replays whatever was last actually classified/
+  // explained so the bars don't go blank until the next live classification
+  // tick.
+  initProbBars();
+  if (lastClassificationProbs) renderClassification(lastClassificationProbs, lastClassificationPredicted);
+  updateExplainHighlight();
+
+  refreshProgressLabel();
+  renderTrainingSummary(lastTrainingStatusMsg);
+  refreshDebugSampleInfo();
+}
+
+function setLanguage(lang) {
+  currentLanguage = lang;
+  document.documentElement.lang = lang;
+  document.querySelectorAll(".lang-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.lang === lang);
+  });
+  applyTranslations();
+}
+
+document.querySelectorAll(".lang-btn").forEach((btn) => {
+  btn.addEventListener("click", () => setLanguage(btn.dataset.lang));
+});
 
 menuModeBtns.forEach((btn) => {
   btn.addEventListener("click", () => {
@@ -1021,6 +1174,7 @@ document.getElementById("menu-btn").addEventListener("click", () => {
 function handleModeSelected(msg) {
   numClasses = msg.num_classes;
   classLabels = msg.class_names.slice();
+  classLabelsSv = (msg.class_names_sv || msg.class_names).slice();
   currentMode = msg.mode;
   updateDrawResolution(msg.mode);
   applyNodeLayoutForMode(msg.mode);
@@ -1053,5 +1207,12 @@ function handleModeSelected(msg) {
   resetDrawingState();
   edgeWeights = [];
   drawConnections();
-  resetTrainingPlots(msg.checkpoint_ready ? "idle" : "no trained model yet - press Retrain");
+  resetTrainingPlots(msg.checkpoint_ready ? "idle" : "noTrainedModel");
 }
+
+// Establishes the Swedish default for real (not just via the static HTML's
+// own already-Swedish text - see index.html) - sets .lang-btn.active and
+// document.documentElement.lang consistently with currentLanguage, and
+// replays applyModeCopy/refreshProgressLabel/etc against real state. A
+// no-op repaint the first time, since the static HTML already matches.
+setLanguage(currentLanguage);

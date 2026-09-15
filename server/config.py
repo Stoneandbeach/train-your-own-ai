@@ -93,6 +93,17 @@ QUICKDRAW_TRAIN_PER_CLASS = TRAIN_SUBSET_SIZE // QUICKDRAW_NUM_CLASSES
 QUICKDRAW_VAL_PER_CLASS = 100
 QUICKDRAW_FETCH_TIMEOUT = 10  # seconds, per HTTP request
 
+# How many images per category to download and cache locally the first time
+# that category is picked - every draw after that (this run or a future one)
+# picks a random slice within this cached block and reads it straight from
+# disk, never touching the network again for that category (see
+# server/quickdraw_data.py's _ensure_local_cache). Comfortably above
+# QUICKDRAW_TRAIN_PER_CLASS + QUICKDRAW_VAL_PER_CLASS (175) so repeated
+# draws of the same category still land on different images, while staying
+# a small fetch (~4MB at 784 bytes/image) even for the most popular
+# categories, which can otherwise run 90MB+ in full.
+QUICKDRAW_CACHE_SIZE_PER_CATEGORY = 5000
+
 # Quick Draw's numpy_bitmap files vs. this project's own pixel convention
 # (0 = blank, 255 = fully inked, as drawn on the canvas and used throughout
 # server/data.py, server/preprocessing.py, static/app.js): set only after
