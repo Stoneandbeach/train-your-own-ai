@@ -132,6 +132,14 @@ ws.onmessage = (event) => {
     case "mode_selected":
       handleModeSelected(msg);
       break;
+    case "kiosk_reset":
+      // The server has confirmed the shared kiosk state is back to "no mode
+      // chosen" (see server/main.py's reset_kiosk handler) - reload rather
+      // than hand-resetting every piece of client state individually, so
+      // this client (and any other connected one) lands on a genuinely
+      // fresh page load, the menu, same as a brand new visitor would see.
+      location.reload();
+      break;
     default:
       break;
   }
@@ -1124,6 +1132,8 @@ function applyTranslations() {
   document.getElementById("accuracy-plot-label").textContent = t("validationAccuracyLabel");
   document.getElementById("debug-heading").textContent = t("debugHeading");
   debugToggleBtn.textContent = t("debugToggle");
+  document.getElementById("inactivity-heading").textContent = t("inactivityHeading");
+  document.getElementById("inactivity-cancel-btn").textContent = t("inactivityCancel");
 
   applyModeCopy(currentMode);
 
@@ -1205,7 +1215,12 @@ function handleModeSelected(msg) {
   if (widthsChanged) sendConfigUpdate();
 
   resetDrawingState();
-  edgeWeights = [];
+  // select_mode() on the server always loads *something* now - a real
+  // checkpoint, or else a fresh random-init model (see
+  // server/inference.py's load_random()) - so edge_weights here reflects
+  // whichever one, letting the connection-line view light up immediately
+  // instead of staying dark until the first real Train completes.
+  edgeWeights = msg.edge_weights || [];
   drawConnections();
   resetTrainingPlots(msg.checkpoint_ready ? "idle" : "noTrainedModel");
 }
@@ -1216,3 +1231,64 @@ function handleModeSelected(msg) {
 // replays applyModeCopy/refreshProgressLabel/etc against real state. A
 // no-op repaint the first time, since the static HTML already matches.
 setLanguage(currentLanguage);
+
+// ---- Inactivity timeout ----
+// After this long with no activity anywhere on the page (menu or a live
+// session), show a warning; after that, this many seconds of no response
+// resets the whole kiosk back to the menu (see server/main.py's reset_kiosk
+// handler) for the next visitor.
+const INACTIVITY_WARNING_MS = 60 * 1000;
+const INACTIVITY_COUNTDOWN_SECONDS = 60;
+
+const inactivityOverlayEl = document.getElementById("inactivity-overlay");
+const inactivityMessageEl = document.getElementById("inactivity-message");
+const inactivityCancelBtn = document.getElementById("inactivity-cancel-btn");
+
+let inactivityWarningTimer = null;
+let inactivityCountdownInterval = null;
+let inactivityCountdownRemaining = 0;
+
+function armInactivityTimer() {
+  clearTimeout(inactivityWarningTimer);
+  inactivityWarningTimer = setTimeout(showInactivityWarning, INACTIVITY_WARNING_MS);
+}
+
+function updateInactivityMessage() {
+  inactivityMessageEl.textContent = t("inactivityMessage", inactivityCountdownRemaining);
+}
+
+function showInactivityWarning() {
+  inactivityCountdownRemaining = INACTIVITY_COUNTDOWN_SECONDS;
+  updateInactivityMessage();
+  inactivityOverlayEl.hidden = false;
+  inactivityCountdownInterval = setInterval(() => {
+    inactivityCountdownRemaining -= 1;
+    if (inactivityCountdownRemaining <= 0) {
+      clearInterval(inactivityCountdownInterval);
+      sendMessage({ type: "reset_kiosk" });
+      return;
+    }
+    updateInactivityMessage();
+  }, 1000);
+}
+
+function cancelInactivityWarning() {
+  clearInterval(inactivityCountdownInterval);
+  inactivityOverlayEl.hidden = true;
+  armInactivityTimer();
+}
+
+inactivityCancelBtn.addEventListener("click", cancelInactivityWarning);
+
+// Broadly scoped on purpose (drawing, dragging a resize handle, clicking any
+// button, typing) - anything counts as "still here". Only postpones the
+// *next* warning, though: once the warning is actually showing, only the
+// explicit Cancel button above dismisses it, so idly resting a finger on
+// the dimmed backdrop doesn't silently reset the countdown.
+["pointerdown", "pointermove", "keydown", "wheel"].forEach((eventName) => {
+  window.addEventListener(eventName, () => {
+    if (inactivityOverlayEl.hidden) armInactivityTimer();
+  });
+});
+
+armInactivityTimer();

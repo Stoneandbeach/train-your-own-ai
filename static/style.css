@@ -42,6 +42,33 @@ h1 {
   background: #111;
 }
 
+/* Dimmed backdrop over whatever's currently showing (menu or a live
+   session) rather than an opaque full-screen takeover like #menu-overlay -
+   it's a "you're about to lose this" warning, not a fresh start. Above
+   #menu-overlay's z-index too, since it can fire while sitting at the menu. */
+#inactivity-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.7);
+}
+
+#inactivity-overlay[hidden] {
+  display: none;
+}
+
+.inactivity-box {
+  background: #1c1c1c;
+  border: 2px solid #9C6114; /* orange */
+  border-radius: 8px;
+  padding: 32px 40px;
+  max-width: 420px;
+  text-align: center;
+}
+
 #menu-overlay[hidden] {
   display: none;
 }

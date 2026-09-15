@@ -56,6 +56,9 @@ const TRANSLATIONS = {
     stopReasonMaxEpochs: "reached max epochs",
     stopReasonStoppedByUser: "stopped (new run started or mode changed)",
     trueLabel: (label) => `True label: ${label} (compare to the prediction on the right)`,
+    inactivityHeading: "Are you still there?",
+    inactivityMessage: (seconds) => `The kiosk will reset in ${seconds}s due to inactivity.`,
+    inactivityCancel: "Cancel",
   },
   sv: {
     pageTitle: "Träna din egen AI",
@@ -94,6 +97,9 @@ const TRANSLATIONS = {
     stopReasonMaxEpochs: "nådde max antal epoker",
     stopReasonStoppedByUser: "stoppad (ny körning startad eller läge ändrat)",
     trueLabel: (label) => `Rätt svar: ${label} (jämför med förutsägelsen till höger)`,
+    inactivityHeading: "Är du kvar?",
+    inactivityMessage: (seconds) => `Kiosken återställs om ${seconds}s på grund av inaktivitet.`,
+    inactivityCancel: "Avbryt",
   },
 };
 

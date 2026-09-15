@@ -131,7 +131,13 @@ def build_mode_selected_message() -> dict:
         "num_classes": len(current_class_names),
         "class_names": list(current_class_names),
         "class_names_sv": class_names_sv_for(current_class_names, current_mode),
-        "checkpoint_ready": inference.is_ready,
+        # is_trained, not is_ready: select_mode() always loads *something*
+        # (a real checkpoint, or else a random-init model - see
+        # inference.load_random()) so live classification/edge_weights are
+        # never blank, but the "no trained model yet" UI text should still
+        # only go away once a real training run has actually happened.
+        "checkpoint_ready": inference.is_trained,
+        "edge_weights": inference.get_edge_weights(),
     }
 
 
@@ -247,7 +253,20 @@ async def select_mode(mode: str) -> None:
 
     current_mode = mode
     inference.reset()
-    inference.reload(checkpoint_path_for_mode(mode), current_class_names)
+    if not inference.reload(checkpoint_path_for_mode(mode), current_class_names):
+        # No matching trained checkpoint - load a random-init model instead,
+        # so there's always something live to draw against and see the
+        # connection weights of right away. checkpoint_ready in
+        # build_mode_selected_message() below stays keyed off is_trained, so
+        # the UI still correctly says no training has happened yet.
+        spec = ArchitectureSpec(
+            kind="mlp",
+            layers=LayerSpec(widths=list(current_layer_widths)),
+            num_classes=len(current_class_names),
+            class_names=list(current_class_names),
+            dataset=dataset_for_mode(mode),
+        )
+        inference.load_random(spec)
 
     await broadcast(build_mode_selected_message())
 
@@ -276,7 +295,7 @@ async def startup() -> None:
 
 @app.websocket("/ws")
 async def ws_endpoint(websocket: WebSocket) -> None:
-    global last_pixels, current_layer_widths
+    global last_pixels, current_layer_widths, current_mode, current_class_names, current_slice_starts
     await websocket.accept()
     clients.add(websocket)
     # Sync this (possibly late-joining, or a page reload) client to whatever
@@ -402,6 +421,25 @@ async def ws_endpoint(websocket: WebSocket) -> None:
                         "map": [[float(v) for v in row] for row in saliency],
                     }
                 )
+
+            elif msg_type == "reset_kiosk":
+                # Inactivity timeout fired client-side (see static/app.js) -
+                # put the shared kiosk state back to "no mode chosen", same
+                # as a fresh server boot, then tell every connected client to
+                # reload so each one lands back on the menu. Deliberately
+                # does NOT touch saved checkpoints on disk - a wandering-off
+                # visitor's half-finished config gets discarded, but a
+                # genuinely trained model stays available for whoever picks
+                # that mode next.
+                assert training_manager is not None
+                training_manager.stop()
+                last_pixels = None
+                current_mode = None
+                current_class_names = []
+                current_slice_starts = {}
+                current_layer_widths = list(DEFAULT_LAYER_WIDTHS)
+                inference.reset()
+                await broadcast({"type": "kiosk_reset"})
 
     except WebSocketDisconnect:
         pass

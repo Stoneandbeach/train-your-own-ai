@@ -14,6 +14,7 @@ import numpy as np
 
 from server.config import GRID_SIZE
 from server.mlp_classifier import MLPClassifier
+from server.model_interface import ArchitectureSpec
 from server.preprocessing import center_by_mass, compute_center_shift, shift_image
 from server.saliency import ContrastiveOcclusionSaliency, SaliencyMethod
 
@@ -24,6 +25,11 @@ class InferenceService:
     def __init__(self):
         self._classifier = MLPClassifier()
         self._loaded = False
+        # True only after a real checkpoint loads via reload() - distinct
+        # from _loaded, which load_random() below also sets, so callers (see
+        # is_trained/is_ready) can tell "there's a model I can run inference
+        # against" apart from "that model actually learned anything."
+        self._is_trained = False
         # Swap this for a different SaliencyMethod implementation (gradient x
         # input, integrated gradients, LRP, ...) to change the explanation
         # method without touching anything downstream.
@@ -35,6 +41,7 @@ class InferenceService:
         stale model from the previous mode/draw is never mistakenly served
         for a beat while the new checkpoint is being resolved."""
         self._loaded = False
+        self._is_trained = False
 
     def reload(self, path: str, expected_class_names: list[str]) -> bool:
         """Attempts to load the checkpoint at `path`, requiring its embedded
@@ -49,6 +56,7 @@ class InferenceService:
         shape mismatch take down the entire server at startup - this is the
         fix, generalized to also cover same-shape-different-classes."""
         self._loaded = False
+        self._is_trained = False
         if not os.path.exists(path):
             return False
         try:
@@ -68,7 +76,21 @@ class InferenceService:
             return False
 
         self._loaded = True
+        self._is_trained = True
         return True
+
+    def load_random(self, spec: ArchitectureSpec) -> None:
+        """Configures a freshly random-initialized (untrained) model matching
+        spec directly in memory - no checkpoint file involved. Called right
+        after a mode is selected whenever reload() didn't find a matching
+        trained checkpoint, so visitors always have a live (if nonsensical)
+        model to classify against and see the connection weights of
+        immediately, instead of a blank pane until the first Train
+        completes. is_trained stays False either way, so the UI still says a
+        real training run hasn't happened yet - see is_trained below."""
+        self._classifier.configure(spec)
+        self._loaded = True
+        self._is_trained = False
 
     def predict(self, pixels: list[int]) -> Optional[np.ndarray]:
         if not self._loaded:
@@ -128,4 +150,14 @@ class InferenceService:
 
     @property
     def is_ready(self) -> bool:
+        """Is there a model in memory to run inference against at all -
+        True for both a real trained checkpoint and a random init from
+        load_random(). Gates predict()/get_edge_weights()/etc above."""
         return self._loaded
+
+    @property
+    def is_trained(self) -> bool:
+        """Is the currently-loaded model an actual trained checkpoint, not
+        just a random init - what server/main.py's checkpoint_ready field
+        (and so the "no trained model yet" UI text) reflects."""
+        return self._loaded and self._is_trained
