@@ -341,6 +341,15 @@ def get_quickdraw_raw_val_samples(categories: list[str], slice_starts: dict[str,
     return np.concatenate(val_images), np.concatenate(val_labels)
 
 
+def get_quickdraw_raw_train_samples(categories: list[str], slice_starts: dict[str, int]) -> tuple[np.ndarray, np.ndarray]:
+    """Mirrors get_quickdraw_raw_val_samples() above, but for the train
+    portion instead - the exact images get_quickdraw_data_loaders(categories,
+    slice_starts) would train on. Used by the title help dialog's sample
+    grid, matching data.py's get_raw_train_samples() for Digits mode."""
+    train_images, train_labels, _, _ = _split_train_val(categories, slice_starts)
+    return np.concatenate(train_images), np.concatenate(train_labels)
+
+
 def _ascii_preview(image: np.ndarray) -> str:
     ramp = " .:-=+*#%@"
     lines = []

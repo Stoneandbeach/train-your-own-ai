@@ -16,24 +16,37 @@ h1 {
 /* Button sits beside the title rather than stacked under it, to reclaim
    that second line of vertical space (see #main-row's height budget below -
    at 1920x1080 this is what keeps the default, Debug-closed view from
-   needing to scroll). Absolutely positioned within the row rather than a
-   flex sibling so it doesn't add its own height to the row's normal flow -
-   min-height (matching a button's own rendered height, same convention as
-   .pane-button-row/.progress-bar-track below) makes sure the row is still
-   tall enough to actually contain the button instead of just the title's
-   own shorter line height, which is what let the button's bottom edge spill
-   into #main-row underneath it. */
+   needing to scroll). */
 #header-row {
-  position: relative;
-  min-height: 49px;
   padding-bottom: 8px;
+}
+
+/* The title and its help "?" button are centered together as one group.
+   #menu-btn is a DOM child here too (so position:relative below gives it
+   the right containing block) but pinned to the left via absolute
+   positioning, out of the centered flex group's flow. Centering #menu-btn
+   against this same box - the one h1's own flex alignment centers against -
+   rather than #header-row's taller, padding-bearing box is what keeps the
+   button and title on the same horizontal level: min-height (matching a
+   button's own rendered height, same convention as .pane-button-row/
+   .progress-bar-track below) makes sure this box is tall enough to actually
+   contain the button, instead of just the title's own shorter line height,
+   which is what let the button's bottom edge spill into #main-row
+   underneath it. */
+.title-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 49px;
 }
 
 #header-row h1 {
   margin: 0;
 }
 
-#header-row #menu-btn {
+.title-row #menu-btn {
   position: absolute;
   left: 0;
   top: 50%;
@@ -82,6 +95,80 @@ h1 {
   padding: 32px 40px;
   max-width: 420px;
   text-align: center;
+}
+
+/* Same dimmed-backdrop pattern as #inactivity-overlay, between #menu-overlay
+   (100, never showing at the same time as this - the help buttons only
+   exist once a mode's been picked and the menu is gone) and
+   #inactivity-overlay (200, which must still win if it fires while a
+   visitor is reading a help dialog). */
+#help-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.7);
+}
+
+#help-overlay[hidden] {
+  display: none;
+}
+
+.help-box {
+  background: #1c1c1c;
+  border: 2px solid #9C6114; /* orange */
+  border-radius: 8px;
+  padding: 32px 40px;
+  max-width: 640px;
+  max-height: 80vh;
+  overflow-y: auto;
+  text-align: left;
+}
+
+#help-text {
+  font-size: 20px;
+  line-height: 1.5;
+  margin-bottom: 20px;
+  white-space: pre-line;
+}
+
+#help-text strong {
+  color: #9C6114; /* orange, same accent as the rest of the palette */
+}
+
+/* Title help dialog only (see openHelp()'s "title" case in app.js) - a
+   3-column grid of real training-image thumbnails with their truth label
+   underneath, each scaled to fit the grid column via width:100% on its
+   canvas (fixed-resolution backing bitmap, see drawHelpSampleThumbnail())
+   rather than the canvas's own pixel size, so it stays sharp at any column
+   width the help box ends up rendering at. */
+.help-sample-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.help-sample-grid[hidden] {
+  display: none;
+}
+
+.help-sample-canvas {
+  width: 100%;
+  height: auto;
+  display: block;
+  background: #fff;
+  border: 1px solid #444;
+  border-radius: 4px;
+}
+
+.help-sample-label {
+  text-align: center;
+  margin-top: 4px;
+  font-size: 15px;
+  color: #ccc;
 }
 
 #menu-overlay[hidden] {
@@ -214,6 +301,29 @@ h1 {
   text-overflow: ellipsis;
 }
 
+/* Pairs each pane's h2 with its help "?" button on the same line, the button
+   sitting right after the title text (no flex-grow on the h2, so it doesn't
+   stretch to fill the row and push the button off to the far right).
+   min-width:0 is what lets the h2's own white-space:nowrap/ellipsis above
+   still engage if the title is ever too long for the pane, even without
+   flex-grow (a flex item's default min-width is auto, i.e. never smaller
+   than its content, which would defeat the ellipsis entirely). Margin is
+   zeroed on the h2 and moved to the row itself so this row's total height is
+   fully controlled here rather than depending on the browser's default h2
+   margin. */
+.pane-heading-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.pane-heading-row h2 {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 0;
+}
+
 /* Shared "row just under the title" for Draw/Config/Classification - same
    min-height and margin in every pane using it (Reset in Draw, +Add/-Remove
    in Config via .config-buttons) is what makes the content below it - the
@@ -322,6 +432,24 @@ button:disabled:hover {
   border-color: #555;
   box-shadow: none;
   cursor: not-allowed;
+}
+
+/* Round "?" help button next to a pane's (or the header's) title - small
+   and circular rather than the standard rectangular button, with a
+   proportionally thinner border so it doesn't read as chunky at this size. */
+.help-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  margin-top: 0;
+  border-width: 2px;
+  border-radius: 50%;
+  font-size: 14px;
+  line-height: 1;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* Always MAX_LAYERS (4) equal-width columns - see renderLayersList() in

@@ -132,6 +132,9 @@ ws.onmessage = (event) => {
     case "mode_selected":
       handleModeSelected(msg);
       break;
+    case "title_help_samples":
+      handleTitleHelpSamples(msg);
+      break;
     case "kiosk_reset":
       // The server has confirmed the shared kiosk state is back to "no mode
       // chosen" (see server/main.py's reset_kiosk handler) - reload rather
@@ -1123,6 +1126,133 @@ function refreshDebugSampleInfo() {
   sampleInfoEl.textContent = t("trueLabel", label);
 }
 
+// ---- Help dialogs ----
+// Per-mode, per-pane, per-language copy for the "?" buttons next to each
+// pane's (and the header's) title - fetched once from the server (see
+// server/help_messages.py, which parses help-messages/messages.txt) since it
+// never changes at runtime, unlike everything else that comes over the
+// websocket. Keyed [category]["digits"|"drawings"][pane][language], where
+// pane is one of "title"/"draw"/"configure"/"classification"/"AIstatus" -
+// see the data-help-pane attribute on each .help-btn in index.html - and
+// language is the spelled-out "english"/"swedish" (the file's own
+// convention, distinct from TRANSLATIONS' "en"/"sv" codes).
+let helpMessages = {};
+fetch("/help-messages")
+  .then((r) => r.json())
+  .then((data) => {
+    helpMessages = data;
+  });
+
+const helpOverlayEl = document.getElementById("help-overlay");
+const helpTextEl = document.getElementById("help-text");
+const helpSamplesEl = document.getElementById("help-samples");
+const helpCloseBtn = document.getElementById("help-close-btn");
+
+// Remembered so a language switch can re-render the open dialog in place
+// (same pattern as lastClassificationProbs/lastTrainingStatusMsg above) -
+// null whenever the dialog is closed.
+let openHelpPane = null;
+
+// Most recent response to a "get_title_help_samples" request (see
+// openHelp() below and server/main.py's pick_title_help_samples) - a fresh
+// random draw of real training images/labels, requested every time the
+// title help dialog opens so reopening it reshuffles the picture. Reset to
+// empty on a mode switch (handleModeSelected) so a stale previous-mode batch
+// can never flash before the new mode's own response arrives.
+let titleHelpSamples = [];
+
+function handleTitleHelpSamples(msg) {
+  titleHelpSamples = msg.samples || [];
+  if (openHelpPane === "title") renderHelpSampleGrid();
+}
+
+// Fixed backing resolution for each sample thumbnail canvas - a multiple of
+// MODEL_GRID_SIZE so every source pixel maps to a whole number of canvas
+// pixels (crisp cell edges, no blur), independent of however wide the help
+// box's 3-column grid actually renders it on screen (see .help-sample-canvas's
+// width:100% in style.css).
+const HELP_SAMPLE_CANVAS_SIZE = MODEL_GRID_SIZE * 5;
+
+// The file's help text uses **word** for emphasis (see its own docstring) -
+// escaped first since this lands via innerHTML, even though the source is
+// our own trusted static file rather than user input.
+function renderHelpMarkup(text) {
+  const escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return escaped.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+}
+
+// Same per-pixel fill approach as redrawCanvas() (0 = blank/white, 255 =
+// fully inked/black, everything between a matching gray shade) - just onto
+// a small dedicated thumbnail canvas instead of the live draw canvas.
+function drawHelpSampleThumbnail(canvas, flatPixels) {
+  const ctx = canvas.getContext("2d");
+  const cell = canvas.width / MODEL_GRID_SIZE;
+  ctx.fillStyle = "white";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  for (let gy = 0; gy < MODEL_GRID_SIZE; gy++) {
+    for (let gx = 0; gx < MODEL_GRID_SIZE; gx++) {
+      const v = flatPixels[gy * MODEL_GRID_SIZE + gx];
+      if (v > 0) {
+        const shade = 255 - v;
+        ctx.fillStyle = `rgb(${shade},${shade},${shade})`;
+        ctx.fillRect(gx * cell, gy * cell, cell, cell);
+      }
+    }
+  }
+}
+
+function renderHelpSampleGrid() {
+  helpSamplesEl.innerHTML = "";
+  if (openHelpPane !== "title" || titleHelpSamples.length === 0) {
+    helpSamplesEl.hidden = true;
+    return;
+  }
+  helpSamplesEl.hidden = false;
+  for (const sample of titleHelpSamples) {
+    const label = currentLanguage === "sv" && sample.label_sv != null ? sample.label_sv : sample.label;
+    const cell = document.createElement("div");
+    cell.className = "help-sample";
+    cell.innerHTML = `
+      <canvas class="help-sample-canvas" width="${HELP_SAMPLE_CANVAS_SIZE}" height="${HELP_SAMPLE_CANVAS_SIZE}"></canvas>
+      <div class="help-sample-label"></div>
+    `;
+    drawHelpSampleThumbnail(cell.querySelector("canvas"), sample.pixels);
+    cell.querySelector(".help-sample-label").textContent = label;
+    helpSamplesEl.appendChild(cell);
+  }
+}
+
+function renderHelpDialog() {
+  if (openHelpPane == null) return;
+  const category = currentMode === "drawings" ? "drawings" : "digits";
+  const language = currentLanguage === "sv" ? "swedish" : "english";
+  const text = helpMessages[category]?.[openHelpPane]?.[language] || "";
+  helpTextEl.innerHTML = renderHelpMarkup(text);
+  renderHelpSampleGrid();
+}
+
+function openHelp(pane) {
+  openHelpPane = pane;
+  renderHelpDialog();
+  helpOverlayEl.hidden = false;
+  // Fresh random draw every time this dialog is (re)opened, not just once
+  // per mode_selected - see the "title_help_samples" case in ws.onmessage
+  // and server/main.py's "get_title_help_samples" handler. Deliberately
+  // doesn't clear titleHelpSamples first, so whatever was shown last time
+  // stays up during the round-trip instead of flashing empty.
+  if (pane === "title") sendMessage({ type: "get_title_help_samples" });
+}
+
+function closeHelp() {
+  openHelpPane = null;
+  helpOverlayEl.hidden = true;
+}
+
+document.querySelectorAll(".help-btn").forEach((btn) => {
+  btn.addEventListener("click", () => openHelp(btn.dataset.helpPane));
+});
+helpCloseBtn.addEventListener("click", closeHelp);
+
 // ---- Menu / mode selection ----
 const menuOverlayEl = document.getElementById("menu-overlay");
 const menuLoadingEl = document.getElementById("menu-loading");
@@ -1173,6 +1303,11 @@ function applyTranslations() {
   debugToggleBtn.textContent = t("debugToggle");
   document.getElementById("inactivity-heading").textContent = t("inactivityHeading");
   document.getElementById("inactivity-cancel-btn").textContent = t("inactivityCancel");
+  document.querySelectorAll(".help-btn").forEach((btn) => {
+    btn.setAttribute("aria-label", t("helpButtonLabel"));
+  });
+  helpCloseBtn.textContent = t("helpClose");
+  renderHelpDialog();
 
   applyModeCopy(currentMode);
 
@@ -1225,6 +1360,7 @@ function handleModeSelected(msg) {
   numClasses = msg.num_classes;
   classLabels = msg.class_names.slice();
   classLabelsSv = (msg.class_names_sv || msg.class_names).slice();
+  titleHelpSamples = []; // a stale previous-mode batch must never flash - see the declaration above
   currentMode = msg.mode;
   updateDrawResolution(msg.mode);
   applyNodeLayoutForMode(msg.mode);
@@ -1238,6 +1374,8 @@ function handleModeSelected(msg) {
   debugToggleBtn.classList.remove("active");
   debugOptionsEl.hidden = true;
   trainingPlotsEl.hidden = true;
+  // A help dialog for one mode's content shouldn't linger open into another.
+  closeHelp();
 
   // Make the panels visible before anything below measures their layout
   // (canvas sizing in renderLayersList, getBoundingClientRect in

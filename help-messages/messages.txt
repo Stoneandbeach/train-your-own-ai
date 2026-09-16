@@ -1,0 +1,55 @@
+#CATEGORY:menu
+
+#CATEGORY:digits
+#PANE:title
+#LANGUAGE:english
+This AI learns by looking at many images that have labels saying what they show. For each image, the AI updates its mathematical operations, so that the predictions improve. If the AI is too small - has too few layers or nodes - it is unable to learn enough to give good predictions. But if it is too big, that can also be a problem, because the AI learns its training data exactly instead of learning the general features of digits. Try experimenting with the AI yourself! Here are a few examples of images the AI is trained on, together with their labels.
+#LANGUAGE:swedish
+Denna AI lär sig genom att titta på många bilder som har etiketter med vad de föreställer. För varje bild uppdaterar AI:n sina matematiska beräkningar, så att dess förutsägelser blir bättre. Om AI:n är för lite - har för få lager eller noder - kan den inte lära sig tillräckligt för att komma med bra förutsägelser. Men om den är för stor kan det också vara ett problem, för den kan lära sig träningsdatan exakt istället för siffrornas generella karaktär. Experimentera med AI:n själv och se hur det går! Här ser du några exempel på bilder som AI:n tränas på, och deras etiketter.
+#PANE:draw
+#LANGUAGE:english
+Draw a digit between 0 and 9 in the white box, and the AI will try to guess what it is!
+#LANGUAGE:swedish
+Rita en siffra mellan 0 och 9 i den vita rutan, så försöker AI:n gissa vilken det är!
+#PANE:configure
+#LANGUAGE:english
+This AI is a **neural network**. It consists of layers, and each layer has a number of nodes. Each node is like one single brain cell, connected to other cells. Change the number of layers and nodes below to design your AI!
+#LANGUAGE:swedish
+Denna AI är ett **neuralt nätverk**. Den består av lager, och varje lager has ett antal noder. Varje nod är som en enda hjärncell, kopplad till andra celler. Ändra antalet lager och noder här för att designa din AI!
+#PANE:classification
+#LANGUAGE:english
+The AI assigns a probability to each digit. Blue means low and red means high. The higher it goes, the more certain the AI is of its guess.
+#LANGUAGE:swedish
+AI:n säger hur troligt det är att teckningen föreställer de olika siffrorna. Blå betyder låg sannolikhet och röd hög. Ju högre den går, dessto säkrare är AI:n på sin gissning.
+#PANE:AIstatus
+#LANGUAGE:english
+Here is the AI's guess! If you want to see technical details, press the **More...** button.
+#LANGUAGE:swedish
+Här ser du AI:ns gissning! Om du vill se mer teknisk information, tryck på **Mer...**-knappen.
+
+#CATEGORY:drawings
+#PANE:title
+#LANGUAGE:english
+This AI learns by looking at many images that have labels saying what they show. For each image, the AI updates its mathematical operations, so that the predictions improve. If the AI is too small - has too few layers or nodes - it is unable to learn enough to give good predictions. But if it is too big, that can also be a problem, because the AI learns its training data exactly instead of learning the general features of objects. Try experimenting with the AI yourself! Here are a few examples of images the AI is trained on, together with their labels.
+#LANGUAGE:swedish
+Denna AI lär sig genom att titta på många bilder som har etiketter med vad de föreställer. För varje bild uppdaterar AI:n sina matematiska beräkningar, så att dess förutsägelser blir bättre. Om AI:n är för lite - har för få lager eller noder - kan den inte lära sig tillräckligt för att komma med bra förutsägelser. Men om den är för stor kan det också vara ett problem, för den kan lära sig träningsdatan exakt istället för föremålens generella karaktär. Experimentera med AI:n själv och se hur det går! Här ser du några exempel på bilder som AI:n tränas på, och deras etiketter.
+#PANE:draw
+#LANGUAGE:english
+Draw one of the objects from the list on the right in the white box, and the AI will try to guess what it is!
+#LANGUAGE:swedish
+Rita en av sakerna från listan till höger i den vita rutan, så försöker AI:n gissa vad det är!
+#PANE:configure
+#LANGUAGE:english
+This AI is a **neural network**. It consists of layers, and each layer has a number of nodes. Each node is like one single brain cell, connected to other cells. Change the number of layers and nodes below to design your AI!
+#LANGUAGE:swedish
+Denna AI är ett **neuralt nätverk**. Den består av lager, och varje lager has ett antal noder. Varje nod är som en enda hjärncell, kopplad till andra celler. Ändra antalet lager och noder här för att designa din AI!
+#PANE:classification
+#LANGUAGE:english
+The AI assigns a probability to each potential object. Blue means low and red means high. The higher it goes, the more certain the AI is of its guess.
+#LANGUAGE:swedish
+AI:n säger hur troligt det är att teckningen föreställer de olika sakerna. Blå betyder låg sannolikhet och röd hög. Ju högre den går, dessto säkrare är AI:n på sin gissning.
+#PANE:AIstatus
+#LANGUAGE:english
+Here is the AI's guess! If you want to see technical details, press the **More...** button.
+#LANGUAGE:swedish
+Här ser du AI:ns gissning! Om du vill se mer teknisk information, tryck på **Mer...**-knappen.

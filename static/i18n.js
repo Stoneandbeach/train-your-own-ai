@@ -42,8 +42,8 @@ const TRANSLATIONS = {
     // Unknown < Uncertain < Confident < Certain. Unknown/Uncertain's copy
     // never names the mode's noun, so those two keys aren't mode-suffixed;
     // Confident/Certain are, same as explainHint*/loadSample* above.
-    certaintyUnknown: (label) => `The AI can't tell. Is it a ${label}?`,
-    certaintyUncertain: (label) => `The AI is uncertain, but thinks it is a ${label}.`,
+    certaintyUnknown: (label) => `The AI can't tell. Is it: ${label}?`,
+    certaintyUncertain: (label) => `The AI is uncertain, but thinks it is: ${label}.`,
     certaintyConfidentDigits: (label) => `The AI is fairly confident the digit is: ${label}`,
     certaintyConfidentDrawings: (label) => `The AI is fairly confident the motif is: ${label}`,
     certaintyCertainDigits: (label) => `The AI is certain the digit is: ${label}`,
@@ -71,6 +71,8 @@ const TRANSLATIONS = {
     inactivityHeading: "Are you still there?",
     inactivityMessage: (seconds) => `The kiosk will reset in ${seconds}s due to inactivity.`,
     inactivityCancel: "Cancel",
+    helpButtonLabel: "Help",
+    helpClose: "Close",
   },
   sv: {
     pageTitle: "Träna din egen AI",
@@ -90,8 +92,8 @@ const TRANSLATIONS = {
     explainHintDigits: "Klicka på en siffra för att se vilket område som skulle hjälpa eller stjälpa den",
     explainHintDrawings: "Klicka på en klass för att se vilket område som skulle hjälpa eller stjälpa den",
     aiStatusHeading: "AI-status",
-    certaintyUnknown: (label) => `AI:n kan inte avgöra det. Är det en ${label}?`,
-    certaintyUncertain: (label) => `AI:n är osäker, men tror att det är en ${label}.`,
+    certaintyUnknown: (label) => `AI:n kan inte avgöra det. Är det: ${label}?`,
+    certaintyUncertain: (label) => `AI:n är osäker, men tror att det är: ${label}.`,
     certaintyConfidentDigits: (label) => `AI:n är ganska säker på att siffran är: ${label}`,
     certaintyConfidentDrawings: (label) => `AI:n är ganska säker på att motivet är: ${label}`,
     certaintyCertainDigits: (label) => `AI:n är säker på att siffran är: ${label}`,
@@ -119,6 +121,8 @@ const TRANSLATIONS = {
     inactivityHeading: "Är du kvar?",
     inactivityMessage: (seconds) => `Kiosken återställs om ${seconds}s på grund av inaktivitet.`,
     inactivityCancel: "Avbryt",
+    helpButtonLabel: "Hjälp",
+    helpClose: "Stäng",
   },
 };
 

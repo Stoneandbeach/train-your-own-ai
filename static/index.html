@@ -19,6 +19,14 @@
     </div>
   </div>
 
+  <div id="help-overlay" hidden>
+    <div class="help-box">
+      <div id="help-text"></div>
+      <div id="help-samples" class="help-sample-grid" hidden></div>
+      <button id="help-close-btn">Stäng</button>
+    </div>
+  </div>
+
   <div id="menu-overlay">
     <div class="menu-language-row">
       <button class="lang-btn" data-lang="en">English</button>
@@ -34,14 +42,20 @@
   </div>
 
   <div id="header-row" hidden>
-    <h1 id="header-title">Träna din egen AI</h1>
-    <button id="menu-btn">Tillbaka till menyn</button>
+    <div class="title-row">
+      <button id="menu-btn">Tillbaka till menyn</button>
+      <h1 id="header-title">Träna din egen AI</h1>
+      <button class="help-btn" data-help-pane="title" aria-label="Hjälp">?</button>
+    </div>
   </div>
 
   <div class="row" id="main-row" hidden>
     <canvas id="connections-canvas"></canvas>
     <section class="pane" id="draw-pane">
-      <h2 id="draw-heading">Rita en siffra</h2>
+      <div class="pane-heading-row">
+        <h2 id="draw-heading">Rita en siffra</h2>
+        <button class="help-btn" data-help-pane="draw" aria-label="Hjälp">?</button>
+      </div>
       <div class="pane-button-row">
         <button id="reset-btn">Rensa</button>
       </div>
@@ -52,7 +66,10 @@
     </section>
 
     <section class="pane" id="config-pane">
-      <h2 id="config-heading">Konfigurera AI:n</h2>
+      <div class="pane-heading-row">
+        <h2 id="config-heading">Konfigurera AI:n</h2>
+        <button class="help-btn" data-help-pane="configure" aria-label="Hjälp">?</button>
+      </div>
       <div class="config-buttons pane-button-row" id="config-buttons"></div>
       <button id="add-layer-btn" hidden>+ Lägg till</button>
       <button id="remove-layer-btn" hidden>&minus; Ta bort</button>
@@ -62,14 +79,20 @@
 
     <div class="pane-column" id="right-column">
       <section class="pane" id="classification-pane">
-        <h2 id="classification-heading">Klassificering</h2>
+        <div class="pane-heading-row">
+          <h2 id="classification-heading">Klassificering</h2>
+          <button class="help-btn" data-help-pane="classification" aria-label="Hjälp">?</button>
+        </div>
         <div class="pane-button-row"></div>
         <div id="prob-bars"></div>
         <div class="hint" id="explain-hint">Klicka på en siffra för att se vilket bläck som skulle hjälpa eller stjälpa den</div>
       </section>
 
       <section class="pane" id="status-pane">
-        <h2 id="status-heading">AI-status</h2>
+        <div class="pane-heading-row">
+          <h2 id="status-heading">AI-status</h2>
+          <button class="help-btn" data-help-pane="AIstatus" aria-label="Hjälp">?</button>
+        </div>
         <div id="prediction-summary">-</div>
         <button id="train-btn">Träna</button>
         <div class="progress-bar-track">
@@ -87,12 +110,12 @@
           </div>
         </div>
         <div id="debug-options" hidden>
-          <h3 id="debug-heading">Felsökning</h3>
+          <h3 id="debug-heading">Mer...</h3>
           <div id="training-summary"></div>
           <button id="load-sample-btn">Ladda slumpmässig testbild</button>
           <div id="sample-info"></div>
         </div>
-        <button id="debug-toggle-btn">Felsökning</button>
+        <button id="debug-toggle-btn">Mer...</button>
       </section>
     </div>
   </div>

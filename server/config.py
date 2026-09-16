@@ -121,3 +121,15 @@ QUICKDRAW_INVERT_PIXELS = False
 # edit to this file. Path is relative to the working directory the server is
 # run from (repo root - see README), matching DATA_ROOT/QUICKDRAW_DATA_ROOT above.
 QUICKDRAW_CURATED_CATEGORIES_CSV = "quickdraw_curated_list.csv"
+
+# Per-pane help dialog copy (the "?" button next to each pane's/the header's
+# title) - see server/help_messages.py, which loads this file at import time,
+# same pattern as QUICKDRAW_CURATED_CATEGORIES_CSV above. Path relative to the
+# working directory the server is run from (repo root - see README).
+HELP_MESSAGES_PATH = "help-messages/messages.txt"
+
+# How many real training images (with truth labels) the "title" help dialog's
+# sample grid shows - see server/main.py's pick_title_help_samples() and
+# static/app.js's rendering of them as a 3-column grid (so this stays a
+# multiple of 3, currently 3x2).
+TITLE_HELP_SAMPLE_COUNT = 6

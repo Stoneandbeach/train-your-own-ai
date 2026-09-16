@@ -22,13 +22,20 @@ from server.config import (
     NODE_STEP,
     NUM_CLASSES,
     QUICKDRAW_NUM_CLASSES,
+    TITLE_HELP_SAMPLE_COUNT,
 )
-from server.data import get_raw_test_samples, prewarm_mnist
+from server.data import get_raw_test_samples, get_raw_train_samples, prewarm_mnist
+from server.help_messages import HELP_MESSAGES
 from server.inference import InferenceService
 from server.model_interface import ArchitectureSpec, LayerSpec
 from server.preprocessing import downscale_by_fill_count
 from server.quickdraw_categories import CATEGORY_POOL, CATEGORY_TRANSLATIONS_SV
-from server.quickdraw_data import get_quickdraw_raw_val_samples, pick_slice_starts, prewarm_categories
+from server.quickdraw_data import (
+    get_quickdraw_raw_train_samples,
+    get_quickdraw_raw_val_samples,
+    pick_slice_starts,
+    prewarm_categories,
+)
 from server.training_manager import TrainingManager
 
 logging.basicConfig(level=logging.INFO)
@@ -59,6 +66,11 @@ training_manager: TrainingManager | None = None
 # in Digits mode.
 mnist_test_images = None
 mnist_test_labels = None
+# Loaded once at startup too (same fixed TRAIN_SUBSET_SEED subset every time -
+# see get_raw_train_samples()) - the title help dialog's Digits-mode sample
+# grid picks randomly from this.
+mnist_train_images = None
+mnist_train_labels = None
 
 # Current mode/task (shared kiosk state, same as last_pixels/current_layer_widths
 # above - one kiosk, one active mode at a time, broadcast to every client).
@@ -75,6 +87,10 @@ current_class_names: list[str] = []
 current_slice_starts: dict[str, int] = {}
 quickdraw_val_images = None
 quickdraw_val_labels = None
+# Same slice_starts as above, but the train portion - see _fetch_quickdraw_task.
+# The title help dialog's Drawings-mode sample grid picks randomly from this.
+quickdraw_train_images = None
+quickdraw_train_labels = None
 
 
 def checkpoint_path_for_mode(mode: str) -> str:
@@ -121,6 +137,31 @@ def class_names_sv_for(class_names: list[str], mode: str) -> list[str]:
     if mode != "drawings":
         return list(class_names)
     return [CATEGORY_TRANSLATIONS_SV.get(name, name) for name in class_names]
+
+
+def pick_title_help_samples() -> list[dict]:
+    """Random TITLE_HELP_SAMPLE_COUNT-image sample (with truth labels) of
+    whatever current_mode actually trains on right now - see
+    get_raw_train_samples()/get_quickdraw_raw_train_samples(). Powers the
+    title help dialog's "here's what it's trained on" grid (see
+    static/app.js) with the real data, not a canned example. Called fresh
+    every time that dialog is opened (see the "get_title_help_samples"
+    handler in ws_endpoint below), not just once per mode_selected, so
+    reopening it reshuffles the picture."""
+    if current_mode == "drawings":
+        images, labels = quickdraw_train_images, quickdraw_train_labels
+    else:
+        images, labels = mnist_train_images, mnist_train_labels
+    if images is None or len(images) == 0:
+        return []
+
+    count = min(TITLE_HELP_SAMPLE_COUNT, len(images))
+    samples = []
+    for idx in random.sample(range(len(images)), count):
+        label = current_class_names[int(labels[idx])] if current_mode == "drawings" else str(int(labels[idx]))
+        label_sv = class_names_sv_for([label], current_mode)[0]
+        samples.append({"pixels": images[idx].flatten().tolist(), "label": label, "label_sv": label_sv})
+    return samples
 
 
 def build_mode_selected_message() -> dict:
@@ -217,20 +258,23 @@ async def handle_training_message(message: dict) -> None:
         await broadcast(message)
 
 
-def _fetch_quickdraw_task(class_names: list[str]) -> tuple[dict, np.ndarray, np.ndarray]:
+def _fetch_quickdraw_task(class_names: list[str]) -> tuple[dict, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Runs on a worker thread (network I/O) - see select_mode. Picks fresh
-    per-category slice offsets and returns them alongside the held-out
-    validation images/labels drawn from those same offsets, so training
-    (which reuses these exact slice_starts) and the debug sample button can
-    never disagree about where the train/val split falls."""
+    per-category slice offsets and returns them alongside both the held-out
+    validation images/labels and the train images/labels drawn from those
+    same offsets, so training (which reuses these exact slice_starts), the
+    debug sample button, and the title help dialog's sample grid can never
+    disagree about where the train/val split falls."""
     slice_starts = pick_slice_starts(class_names)
     val_images, val_labels = get_quickdraw_raw_val_samples(class_names, slice_starts)
-    return slice_starts, val_images, val_labels
+    train_images, train_labels = get_quickdraw_raw_train_samples(class_names, slice_starts)
+    return slice_starts, val_images, val_labels, train_images, train_labels
 
 
 async def select_mode(mode: str) -> None:
     global current_mode, current_class_names, current_slice_starts
     global last_pixels, quickdraw_val_images, quickdraw_val_labels, current_layer_widths
+    global quickdraw_train_images, quickdraw_train_labels
 
     assert training_manager is not None
     training_manager.stop()
@@ -242,11 +286,15 @@ async def select_mode(mode: str) -> None:
 
     if mode == "drawings":
         class_names = random.sample(CATEGORY_POOL, QUICKDRAW_NUM_CLASSES)
-        slice_starts, val_images, val_labels = await asyncio.to_thread(_fetch_quickdraw_task, class_names)
+        slice_starts, val_images, val_labels, train_images, train_labels = await asyncio.to_thread(
+            _fetch_quickdraw_task, class_names
+        )
         current_class_names = class_names
         current_slice_starts = slice_starts
         quickdraw_val_images = val_images
         quickdraw_val_labels = val_labels
+        quickdraw_train_images = train_images
+        quickdraw_train_labels = train_labels
     else:
         current_class_names = list(DIGIT_CLASS_NAMES)
         current_slice_starts = {}
@@ -273,7 +321,7 @@ async def select_mode(mode: str) -> None:
 
 @app.on_event("startup")
 async def startup() -> None:
-    global training_manager, mnist_test_images, mnist_test_labels
+    global training_manager, mnist_test_images, mnist_test_labels, mnist_train_images, mnist_train_labels
     clear_checkpoints()
     loop = asyncio.get_running_loop()
     training_manager = TrainingManager(loop, handle_training_message)
@@ -289,8 +337,18 @@ async def startup() -> None:
     await asyncio.to_thread(prewarm_mnist)
     await asyncio.to_thread(prewarm_categories, CATEGORY_POOL)
     mnist_test_images, mnist_test_labels = await asyncio.to_thread(get_raw_test_samples)
+    mnist_train_images, mnist_train_labels = await asyncio.to_thread(get_raw_train_samples)
     # No mode chosen yet at boot (current_mode is None) - nothing to reload
     # here, select_mode() does the first reload once a visitor picks a mode.
+
+
+@app.get("/help-messages")
+async def get_help_messages() -> dict:
+    """Static per-mode/pane/language help dialog copy - see
+    server/help_messages.py. Fetched once by static/app.js on load rather
+    than threaded through every mode_selected broadcast, since it never
+    changes at runtime."""
+    return HELP_MESSAGES
 
 
 @app.websocket("/ws")
@@ -385,6 +443,17 @@ async def ws_endpoint(websocket: WebSocket) -> None:
                     )
                 )
                 await classify_and_broadcast()
+
+            elif msg_type == "get_title_help_samples":
+                # Sent each time the title help dialog is opened (see
+                # openHelp() in static/app.js) rather than baked into
+                # mode_selected, precisely so reopening it reshuffles which
+                # TITLE_HELP_SAMPLE_COUNT real training images are shown.
+                if current_mode is None:
+                    continue
+                await websocket.send_text(
+                    json.dumps({"type": "title_help_samples", "samples": pick_title_help_samples()})
+                )
 
             elif msg_type == "explain_prediction":
                 class_idx = msg.get("class_idx")

@@ -87,3 +87,24 @@ def get_raw_test_samples() -> tuple[np.ndarray, np.ndarray]:
     images = images.round().astype(np.uint8)
     labels = test_set.targets.numpy()  # int64, (N,)
     return images, labels
+
+
+def get_raw_train_samples() -> tuple[np.ndarray, np.ndarray]:
+    """Returns (images, labels) for the exact TRAIN_SUBSET_SIZE-image subset
+    get_data_loaders() actually trains on - same TRAIN_SUBSET_SEED, so always
+    the same indices - unnormalized, same convention as get_raw_test_samples()
+    above. Used by the title help dialog's sample grid: showing the real
+    training images (not just "some MNIST images") is the point, matching
+    what a visitor's Retrain click would actually use."""
+    train_set = datasets.MNIST(root=DATA_ROOT, train=True, download=True)
+    raw_images = train_set.data.numpy()  # uint8, (N, 28, 28)
+    labels = train_set.targets.numpy()  # int64, (N,)
+
+    generator = torch.Generator().manual_seed(TRAIN_SUBSET_SEED)
+    subset_indices = torch.randperm(len(raw_images), generator=generator)[:TRAIN_SUBSET_SIZE].numpy()
+
+    images = np.stack(
+        [_downsample(img.astype(np.float32), GRID_SIZE) for img in raw_images[subset_indices]]
+    )
+    images = images.round().astype(np.uint8)
+    return images, labels[subset_indices]
