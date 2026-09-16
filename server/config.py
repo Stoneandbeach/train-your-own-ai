@@ -85,11 +85,14 @@ OCCLUSION_PATCH_SIZE = 1
 QUICKDRAW_BASE_URL = "https://storage.googleapis.com/quickdraw_dataset/full/numpy_bitmap"
 QUICKDRAW_DATA_ROOT = "data/quickdraw"
 QUICKDRAW_NUM_CLASSES = 8
-# Same total training-set size as MNIST's TRAIN_SUBSET_SIZE, split evenly
-# across classes, so the "small subset makes capacity visible" pedagogy
-# transfers unchanged (see TRAIN_SUBSET_SIZE above) - it's the same lesson,
-# just with a different dataset.
-QUICKDRAW_TRAIN_PER_CLASS = TRAIN_SUBSET_SIZE // QUICKDRAW_NUM_CLASSES
+# Deliberately bigger than MNIST's TRAIN_SUBSET_SIZE (unlike that fixed-size
+# subset, Quick Draw drawings vary a lot more per category, and Drawings mode
+# already softens the capacity-vs-overfitting demo with dropout - see
+# DRAWINGS_DROPOUT_RATE - so a larger set here keeps that demo from being too
+# punishing while still leaving room for it to overfit at high capacity).
+# Stays well within QUICKDRAW_CACHE_SIZE_PER_CATEGORY (5000) once
+# QUICKDRAW_VAL_PER_CLASS is added, so no local cache resize is needed.
+QUICKDRAW_TRAIN_PER_CLASS = 300
 QUICKDRAW_VAL_PER_CLASS = 100
 QUICKDRAW_FETCH_TIMEOUT = 10  # seconds, per HTTP request
 
@@ -98,7 +101,7 @@ QUICKDRAW_FETCH_TIMEOUT = 10  # seconds, per HTTP request
 # picks a random slice within this cached block and reads it straight from
 # disk, never touching the network again for that category (see
 # server/quickdraw_data.py's _ensure_local_cache). Comfortably above
-# QUICKDRAW_TRAIN_PER_CLASS + QUICKDRAW_VAL_PER_CLASS (175) so repeated
+# QUICKDRAW_TRAIN_PER_CLASS + QUICKDRAW_VAL_PER_CLASS (400) so repeated
 # draws of the same category still land on different images, while staying
 # a small fetch (~4MB at 784 bytes/image) even for the most popular
 # categories, which can otherwise run 90MB+ in full.

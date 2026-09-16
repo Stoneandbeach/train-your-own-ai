@@ -42,6 +42,8 @@ def run(arch_spec_dict: dict, metrics_queue, stop_event, checkpoint_path: str) -
     # error before epoch 0).
     epochs_trained = 0
     best_val_accuracy = None
+    train_size = None
+    val_size = None
 
     try:
         if spec.dataset == "quickdraw":
@@ -49,6 +51,8 @@ def run(arch_spec_dict: dict, metrics_queue, stop_event, checkpoint_path: str) -
             train_loader, test_loader = get_quickdraw_data_loaders(spec.class_names, slice_starts)
         else:
             train_loader, test_loader = get_data_loaders()
+        train_size = len(train_loader.dataset)
+        val_size = len(test_loader.dataset)
         device = default_device()
         print(f"[train_worker] training on device: {device}")
         classifier = MLPClassifier(train_loader=train_loader, test_loader=test_loader, device=device)
@@ -144,6 +148,8 @@ def run(arch_spec_dict: dict, metrics_queue, stop_event, checkpoint_path: str) -
                 "epochs_trained": epochs_trained,
                 "best_val_accuracy": best_val_accuracy,
                 "stop_reason": stop_reason,
+                "train_size": train_size,
+                "val_size": val_size,
             }
         )
     except Exception as exc:  # surface errors to the UI instead of a silent death
@@ -154,6 +160,8 @@ def run(arch_spec_dict: dict, metrics_queue, stop_event, checkpoint_path: str) -
                 "message": str(exc),
                 "epochs_trained": epochs_trained,
                 "best_val_accuracy": best_val_accuracy,
+                "train_size": train_size,
+                "val_size": val_size,
             }
         )
         raise

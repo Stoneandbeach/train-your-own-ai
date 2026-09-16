@@ -1027,6 +1027,9 @@ function renderTrainingSummary(msg) {
   if (msg.best_val_accuracy != null) {
     parts.push(t("valAccuracy", (msg.best_val_accuracy * 100).toFixed(1)));
   }
+  if (msg.train_size != null && msg.val_size != null) {
+    parts.push(t("datasetSizes", msg.train_size, msg.val_size));
+  }
   if (msg.stop_reason) {
     const reasonKey = STOP_REASON_KEYS[msg.stop_reason];
     parts.push(t("stoppingCondition", reasonKey ? t(reasonKey) : msg.stop_reason));
@@ -1176,6 +1179,7 @@ document.getElementById("menu-btn").addEventListener("click", () => {
   // Only re-shows the overlay - does NOT send select_mode, so backing out
   // of the menu without picking anything leaves the current scene intact.
   menuOverlayEl.hidden = false;
+  stopInactivityTimer(); // the timeout never runs while the menu is showing
 });
 
 // Handles every mode_selected the server ever sends: the initial sync right
@@ -1203,6 +1207,7 @@ function handleModeSelected(msg) {
   menuOverlayEl.hidden = true;
   headerRowEl.hidden = false;
   mainRowEl.hidden = false;
+  armInactivityTimer(); // now in a live session - the timeout can start counting
 
   // Widths set while in the other mode may exceed this mode's own node cap
   // (see MAX_NODES_PER_LAYER_DIGITS/DRAWINGS) - re-clamp and, if that
@@ -1233,10 +1238,13 @@ function handleModeSelected(msg) {
 setLanguage(currentLanguage);
 
 // ---- Inactivity timeout ----
-// After this long with no activity anywhere on the page (menu or a live
-// session), show a warning; after that, this many seconds of no response
-// resets the whole kiosk back to the menu (see server/main.py's reset_kiosk
-// handler) for the next visitor.
+// After this long with no activity during a live Digits/Drawings session,
+// show a warning; after that, this many seconds of no response resets the
+// whole kiosk back to the menu (see server/main.py's reset_kiosk handler)
+// for the next visitor. Deliberately does NOT run on the menu screen itself
+// - a visitor just standing at the menu deciding what to pick shouldn't get
+// bounced - so arming/disarming is gated on menuOverlayEl.hidden (see
+// handleModeSelected and the "back to menu" button below).
 const INACTIVITY_WARNING_MS = 60 * 1000;
 const INACTIVITY_COUNTDOWN_SECONDS = 60;
 
@@ -1250,7 +1258,14 @@ let inactivityCountdownRemaining = 0;
 
 function armInactivityTimer() {
   clearTimeout(inactivityWarningTimer);
+  if (!menuOverlayEl.hidden) return; // on the menu screen - never fires here
   inactivityWarningTimer = setTimeout(showInactivityWarning, INACTIVITY_WARNING_MS);
+}
+
+function stopInactivityTimer() {
+  clearTimeout(inactivityWarningTimer);
+  clearInterval(inactivityCountdownInterval);
+  inactivityOverlayEl.hidden = true;
 }
 
 function updateInactivityMessage() {
@@ -1290,5 +1305,3 @@ inactivityCancelBtn.addEventListener("click", cancelInactivityWarning);
     if (inactivityOverlayEl.hidden) armInactivityTimer();
   });
 });
-
-armInactivityTimer();
