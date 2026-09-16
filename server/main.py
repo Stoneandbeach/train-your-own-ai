@@ -97,15 +97,22 @@ def checkpoint_path_for_mode(mode: str) -> str:
     return CHECKPOINT_PATH_DRAWINGS if mode == "drawings" else CHECKPOINT_PATH_DIGITS
 
 
+def clear_checkpoint_for_mode(mode: str) -> None:
+    """No pre-trained model should carry over to whoever picks this mode
+    next - called when a session actually ends (reset_to_menu()) as well as
+    at startup (clear_checkpoints() below)."""
+    try:
+        os.remove(checkpoint_path_for_mode(mode))
+    except FileNotFoundError:
+        pass
+
+
 def clear_checkpoints() -> None:
     """Kiosk starts fresh every boot - no pre-trained model should carry over
     from a previous run/visitor. Called once at startup, before any client
     can connect and pick a mode."""
-    for path in (CHECKPOINT_PATH_DIGITS, CHECKPOINT_PATH_DRAWINGS):
-        try:
-            os.remove(path)
-        except FileNotFoundError:
-            pass
+    for mode in ("digits", "drawings"):
+        clear_checkpoint_for_mode(mode)
 
 
 def max_nodes_per_layer_for_mode(mode: str | None) -> int:
@@ -172,11 +179,11 @@ def build_mode_selected_message() -> dict:
         "num_classes": len(current_class_names),
         "class_names": list(current_class_names),
         "class_names_sv": class_names_sv_for(current_class_names, current_mode),
-        # is_trained, not is_ready: select_mode() always loads *something*
-        # (a real checkpoint, or else a random-init model - see
-        # inference.load_random()) so live classification/edge_weights are
-        # never blank, but the "no trained model yet" UI text should still
-        # only go away once a real training run has actually happened.
+        # is_trained, not is_ready: select_mode() always loads a random-init
+        # model (see inference.load_random()) so live classification/
+        # edge_weights are never blank, but the "no trained model yet" UI
+        # text should still only go away once a real training run has
+        # actually happened this session.
         "checkpoint_ready": inference.is_trained,
         "edge_weights": inference.get_edge_weights(),
     }
@@ -258,6 +265,29 @@ async def handle_training_message(message: dict) -> None:
         await broadcast(message)
 
 
+async def reset_to_menu() -> None:
+    """Ends the current shared session for real: stops any in-flight
+    training, deletes *this* mode's checkpoint (so the next visitor to pick
+    it gets select_mode()'s fresh random-init model, never a leftover
+    trained one - see clear_checkpoint_for_mode()), and puts every connected
+    client back on the menu. Counterpart to select_mode(); called by the
+    "reset_kiosk" message, which either the inactivity timeout or an
+    explicit "back to menu" click sends."""
+    global last_pixels, current_mode, current_class_names, current_slice_starts, current_layer_widths
+
+    assert training_manager is not None
+    training_manager.stop()
+    if current_mode is not None:
+        clear_checkpoint_for_mode(current_mode)
+    last_pixels = None
+    current_mode = None
+    current_class_names = []
+    current_slice_starts = {}
+    current_layer_widths = list(DEFAULT_LAYER_WIDTHS)
+    inference.reset()
+    await broadcast({"type": "kiosk_reset"})
+
+
 def _fetch_quickdraw_task(class_names: list[str]) -> tuple[dict, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Runs on a worker thread (network I/O) - see select_mode. Picks fresh
     per-category slice offsets and returns them alongside both the held-out
@@ -301,20 +331,21 @@ async def select_mode(mode: str) -> None:
 
     current_mode = mode
     inference.reset()
-    if not inference.reload(checkpoint_path_for_mode(mode), current_class_names):
-        # No matching trained checkpoint - load a random-init model instead,
-        # so there's always something live to draw against and see the
-        # connection weights of right away. checkpoint_ready in
-        # build_mode_selected_message() below stays keyed off is_trained, so
-        # the UI still correctly says no training has happened yet.
-        spec = ArchitectureSpec(
-            kind="mlp",
-            layers=LayerSpec(widths=list(current_layer_widths)),
-            num_classes=len(current_class_names),
-            class_names=list(current_class_names),
-            dataset=dataset_for_mode(mode),
-        )
-        inference.load_random(spec)
+    # Always a fresh random-init model, never a reload of a leftover
+    # checkpoint - every mode entry should start from scratch for whoever's
+    # picking it now (see reset_to_menu(), which deletes the mode's
+    # checkpoint on the way out precisely so there's never one left to find
+    # here). checkpoint_ready in build_mode_selected_message() below stays
+    # keyed off is_trained, so the UI still correctly says no training has
+    # happened yet.
+    spec = ArchitectureSpec(
+        kind="mlp",
+        layers=LayerSpec(widths=list(current_layer_widths)),
+        num_classes=len(current_class_names),
+        class_names=list(current_class_names),
+        dataset=dataset_for_mode(mode),
+    )
+    inference.load_random(spec)
 
     await broadcast(build_mode_selected_message())
 
@@ -385,7 +416,13 @@ async def ws_endpoint(websocket: WebSocket) -> None:
                     last_pixels = downscale_by_fill_count(image, DRAW_DOWNSCALE_FACTOR).flatten().tolist()
                 else:
                     last_pixels = pixels
-                await classify_and_broadcast()
+                # While the pointer's still down mid-stroke (see static/app.js's
+                # userIsDrawing), the canvas is repainting far faster than any
+                # prediction could stay meaningful for - skip inference until
+                # the pointerup that ends the stroke sends one final update
+                # with this false, which is what actually classifies it.
+                if not msg.get("user_is_drawing"):
+                    await classify_and_broadcast()
 
             elif msg_type == "config_update":
                 widths = msg.get("layers", [])
@@ -492,23 +529,10 @@ async def ws_endpoint(websocket: WebSocket) -> None:
                 )
 
             elif msg_type == "reset_kiosk":
-                # Inactivity timeout fired client-side (see static/app.js) -
-                # put the shared kiosk state back to "no mode chosen", same
-                # as a fresh server boot, then tell every connected client to
-                # reload so each one lands back on the menu. Deliberately
-                # does NOT touch saved checkpoints on disk - a wandering-off
-                # visitor's half-finished config gets discarded, but a
-                # genuinely trained model stays available for whoever picks
-                # that mode next.
-                assert training_manager is not None
-                training_manager.stop()
-                last_pixels = None
-                current_mode = None
-                current_class_names = []
-                current_slice_starts = {}
-                current_layer_widths = list(DEFAULT_LAYER_WIDTHS)
-                inference.reset()
-                await broadcast({"type": "kiosk_reset"})
+                # Sent either by the inactivity timeout firing, or by an
+                # explicit "back to menu" click (see static/app.js) - both
+                # mean this visitor is done, so end the session for real.
+                await reset_to_menu()
 
     except WebSocketDisconnect:
         pass

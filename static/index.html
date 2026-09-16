@@ -46,6 +46,10 @@
       <button id="menu-btn">Tillbaka till menyn</button>
       <h1 id="header-title">Träna din egen AI</h1>
       <button class="help-btn" data-help-pane="title" aria-label="Hjälp">?</button>
+      <div class="header-language-row">
+        <button class="lang-btn" data-lang="en">English</button>
+        <button class="lang-btn active" data-lang="sv">Svenska</button>
+      </div>
     </div>
   </div>
 
@@ -63,6 +67,7 @@
         <canvas id="draw-canvas" width="560" height="560"></canvas>
         <canvas id="saliency-canvas" width="560" height="560"></canvas>
       </div>
+      <div class="hint" id="draw-classes-hint" hidden></div>
     </section>
 
     <section class="pane" id="config-pane">
@@ -74,7 +79,7 @@
       <button id="add-layer-btn" hidden>+ Lägg till</button>
       <button id="remove-layer-btn" hidden>&minus; Ta bort</button>
       <div id="layers-container"></div>
-      <div class="hint" id="config-hint">Klicka på en nod för att se vad som får den att aktiveras</div>
+      <button id="train-btn" class="pulse">Träna</button>
     </section>
 
     <div class="pane-column" id="right-column">
@@ -94,7 +99,6 @@
           <button class="help-btn" data-help-pane="AIstatus" aria-label="Hjälp">?</button>
         </div>
         <div id="prediction-summary">-</div>
-        <button id="train-btn">Träna</button>
         <div class="progress-bar-track">
           <div class="progress-bar-fill" id="progress-bar-fill"></div>
           <span class="progress-bar-label" id="progress-label">inaktiv</span>

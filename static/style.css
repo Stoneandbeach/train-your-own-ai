@@ -54,6 +54,20 @@ h1 {
   margin-top: 0;
 }
 
+/* Mirrors #menu-btn's own left-corner placement above, on the opposite
+   side - same centered title in the middle, a widget pinned to each
+   corner. Shown in both Digits and Drawings (this row is mode-agnostic
+   chrome, same as the rest of #header-row), so a visitor can switch
+   language mid-session without backing out to the menu. */
+.header-language-row {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  gap: 8px;
+}
+
 #header-row[hidden] {
   display: none;
 }
@@ -576,8 +590,7 @@ button:disabled:hover {
   padding-right: 4px;
 }
 
-/* AI Status pane's live prediction + certainty readout, shown above the
-   Train button. */
+/* AI Status pane's live prediction + certainty readout. */
 #prediction-summary {
   font-size: 18px;
   font-weight: bold;
@@ -642,6 +655,15 @@ button:disabled:hover {
   color: #999;
 }
 
+/* Capped to the drawing surface's own width (.draw-canvas-wrap is a fixed
+   560px) rather than left to size-to-content like other .hint text - a
+   category list can easily be long enough that, unconstrained, its
+   preferred (unwrapped) width would drag #draw-pane's own shrink-to-fit
+   sizing wider than the canvas above it. This forces it to wrap instead. */
+#draw-classes-hint {
+  max-width: 560px;
+}
+
 .prob-bar-track {
   flex: 1;
   background: #333;
@@ -656,9 +678,39 @@ button:disabled:hover {
   width: 0%;
 }
 
+/* Bottom-center of the Configure pane, below the layer columns, sized to
+   exactly match a +Add/-Remove button - i.e. one slot of the same
+   MAX_LAYERS(4)-wide, 6px-gap grid .config-buttons/.config-button-slot use
+   above (see their own comments). */
 #train-btn {
-  margin-top: 0;
-  margin-bottom: 10px;
+  display: block;
+  width: calc((100% - 3 * 6px) / 4);
+  margin: 0 auto;
+}
+
+/* Draws the eye to Train whenever pressing it would actually do something
+   new: before any training has happened yet this mode, and again after any
+   config change makes the currently-loaded model stale (see setNeedsTraining()
+   in app.js, which is the single place this class gets toggled). Scale-only
+   (no color/shadow change) so it reads as "this is waiting on you" without
+   competing with the progress bar's own color language below it. */
+@keyframes train-btn-pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.08);
+  }
+}
+
+#train-btn.pulse {
+  animation: train-btn-pulse 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #train-btn.pulse {
+    animation: none;
+  }
 }
 
 /* Same height as a button (button's own 12px vertical padding + ~25px line

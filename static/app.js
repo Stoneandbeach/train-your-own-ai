@@ -167,7 +167,12 @@ function updateDrawResolution(mode) {
   drawGridSize = mode === "drawings" ? DRAW_GRID_SIZE_DRAWINGS : DRAW_GRID_SIZE_DIGITS;
   cellSize = drawCanvas.width / drawGridSize;
 }
-let isDrawing = false;
+// True for exactly as long as the pointer (left or right button) is held
+// down over the draw canvas. Threaded through draw_update as
+// user_is_drawing so the server can skip running inference on every
+// in-stroke pixel update - see the pointerup handler below, which fires the
+// one classification a stroke actually needs, right as the pointer lifts.
+let userIsDrawing = false;
 let eraseMode = false;
 let lastPointerPos = null; // {x, y} in client coords, for interpolating fast strokes
 
@@ -330,14 +335,14 @@ function scheduleDrawSend() {
   const now = performance.now();
   if (now - lastSendTime >= DRAW_SEND_INTERVAL_MS) {
     lastSendTime = now;
-    sendMessage({ type: "draw_update", pixels });
+    sendMessage({ type: "draw_update", pixels, user_is_drawing: userIsDrawing });
     refreshActiveExplanation();
   } else if (!sendPending) {
     sendPending = true;
     setTimeout(() => {
       sendPending = false;
       lastSendTime = performance.now();
-      sendMessage({ type: "draw_update", pixels });
+      sendMessage({ type: "draw_update", pixels, user_is_drawing: userIsDrawing });
       refreshActiveExplanation();
     }, DRAW_SEND_INTERVAL_MS - (now - lastSendTime));
   }
@@ -346,7 +351,7 @@ function scheduleDrawSend() {
 drawCanvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
 drawCanvas.addEventListener("pointerdown", (e) => {
-  isDrawing = true;
+  userIsDrawing = true;
   eraseMode = e.button === 2;
   lastPointerPos = null;
   // A selected explanation persists across strokes now - it tracks the
@@ -357,7 +362,7 @@ drawCanvas.addEventListener("pointerdown", (e) => {
   scheduleDrawSend();
 });
 drawCanvas.addEventListener("pointermove", (e) => {
-  if (!isDrawing) return;
+  if (!userIsDrawing) return;
   // getCoalescedEvents exposes every raw sample the OS captured between
   // frames (there can be several on a fast stroke) instead of just the
   // latest one, so we fill gaps using real mouse positions, not guesses.
@@ -370,8 +375,19 @@ drawCanvas.addEventListener("pointermove", (e) => {
   scheduleDrawSend();
 });
 window.addEventListener("pointerup", () => {
-  isDrawing = false;
+  const wasDrawing = userIsDrawing;
+  userIsDrawing = false;
   lastPointerPos = null;
+  // The stroke's own in-progress draw_updates all carried
+  // user_is_drawing:true (server skips inference on those - see
+  // server/main.py) - send one last update, immediately rather than
+  // waiting on scheduleDrawSend()'s throttle, so releasing the pointer is
+  // what actually triggers the classification a visitor is waiting on.
+  if (wasDrawing) {
+    lastSendTime = performance.now();
+    sendMessage({ type: "draw_update", pixels, user_is_drawing: false });
+    refreshActiveExplanation();
+  }
 });
 
 // Shared by the Reset button and a mode switch (server/main.py resets
@@ -708,6 +724,19 @@ function drawConnections() {
 
 function sendConfigUpdate() {
   sendMessage({ type: "config_update", layers: layerWidths });
+  // Any config change - including the very first one sent at page load,
+  // before a mode/checkpoint has even loaded - makes whatever model is
+  // currently live stale, so this is the one funnel every config change
+  // (add/remove layer, resize handle, mode-switch reclamping) already runs
+  // through; handleModeSelected() below is the only other place that sets
+  // this, based on the server's own checkpoint_ready flag.
+  setNeedsTraining(true);
+}
+
+const trainBtnEl = document.getElementById("train-btn");
+
+function setNeedsTraining(value) {
+  trainBtnEl.classList.toggle("pulse", value);
 }
 
 const addLayerBtn = document.getElementById("add-layer-btn");
@@ -752,8 +781,9 @@ removeLayerBtn.addEventListener("click", () => {
   sendConfigUpdate();
 });
 
-document.getElementById("train-btn").addEventListener("click", () => {
+trainBtnEl.addEventListener("click", () => {
   sendMessage({ type: "retrain" });
+  setNeedsTraining(false);
   resetTrainingPlots("trainingEllipsis");
   resetExplain();
   resetSelectedNode();
@@ -919,6 +949,7 @@ function handleTrainingStatus(msg) {
     setProgress(0, "trainingEllipsis");
   } else if (msg.state === "error") {
     setProgress(0, "trainingError");
+    setNeedsTraining(true); // the run failed - the config still has no trained model behind it
   } else if (msg.state === "idle") {
     setProgress(1, "trainingComplete");
   }
@@ -1260,6 +1291,7 @@ const headerRowEl = document.getElementById("header-row");
 const menuModeBtns = document.querySelectorAll(".menu-mode-btn");
 const drawHeadingEl = document.getElementById("draw-heading");
 const explainHintEl = document.getElementById("explain-hint");
+const drawClassesHintEl = document.getElementById("draw-classes-hint");
 
 // Mode-dependent copy - keyed off TRANSLATIONS' own drawHeading*/explainHint*/
 // loadSample* naming (see i18n.js), so adding a mode just means adding the
@@ -1269,6 +1301,13 @@ function applyModeCopy(mode) {
   drawHeadingEl.textContent = t(`drawHeading${suffix}`);
   explainHintEl.textContent = t(`explainHint${suffix}`);
   loadSampleBtn.textContent = t(`loadSample${suffix}`);
+
+  // Digits' classes (0-9) are obvious from the heading alone; Drawings'
+  // random 8-of-~321 category draw is not, so only it gets this hint.
+  drawClassesHintEl.hidden = mode !== "drawings";
+  if (mode === "drawings") {
+    drawClassesHintEl.textContent = t("drawClassesHint", currentClassLabels().join(", "));
+  }
 }
 
 // Re-renders every piece of UI chrome text in the current language - the
@@ -1293,10 +1332,9 @@ function applyTranslations() {
   document.getElementById("config-heading").textContent = t("configureHeading");
   addLayerBtn.textContent = t("addLayer");
   removeLayerBtn.textContent = t("removeLayer");
-  document.getElementById("config-hint").textContent = t("configHint");
   document.getElementById("classification-heading").textContent = t("classificationHeading");
   document.getElementById("status-heading").textContent = t("aiStatusHeading");
-  document.getElementById("train-btn").textContent = t("train");
+  trainBtnEl.textContent = t("train");
   document.getElementById("loss-plot-label").textContent = t("lossLabel");
   document.getElementById("accuracy-plot-label").textContent = t("validationAccuracyLabel");
   document.getElementById("debug-heading").textContent = t("debugHeading");
@@ -1347,10 +1385,14 @@ menuModeBtns.forEach((btn) => {
 });
 
 document.getElementById("menu-btn").addEventListener("click", () => {
-  // Only re-shows the overlay - does NOT send select_mode, so backing out
-  // of the menu without picking anything leaves the current scene intact.
+  // Ends the session for real (server deletes this mode's checkpoint - see
+  // reset_to_menu() in server/main.py) rather than just peeking at the
+  // menu, so the next mode entry always starts from a fresh random model.
+  // Showing the overlay here too, ahead of the server's kiosk_reset
+  // round-trip landing and reloading the page, is just for instant feedback.
   menuOverlayEl.hidden = false;
   stopInactivityTimer(); // the timeout never runs while the menu is showing
+  sendMessage({ type: "reset_kiosk" });
 });
 
 // Handles every mode_selected the server ever sends: the initial sync right
@@ -1409,6 +1451,7 @@ function handleModeSelected(msg) {
   edgeWeights = msg.edge_weights || [];
   drawConnections();
   resetTrainingPlots(msg.checkpoint_ready ? "idle" : "noTrainedModel");
+  setNeedsTraining(!msg.checkpoint_ready);
 }
 
 // Establishes the Swedish default for real (not just via the static HTML's
