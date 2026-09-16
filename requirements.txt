@@ -1,4 +1,6 @@
 fastapi
 uvicorn[standard]
+
 torch
 torchvision
+numpy<2
