@@ -11,7 +11,7 @@ const MODEL_GRID_SIZE = 28;
 const DRAW_DOWNSCALE_FACTOR = 2;
 const DRAW_GRID_SIZE_DIGITS = MODEL_GRID_SIZE;
 const DRAW_GRID_SIZE_DRAWINGS = MODEL_GRID_SIZE * DRAW_DOWNSCALE_FACTOR;
-const MIN_NODES_PER_LAYER = 10;
+const MIN_NODES_PER_LAYER = 1;
 // Drawings mode allows twice the hidden-layer capacity of Digits. The
 // per-node pixel sizes below (PX_PER_NODE_*/NODE_RADIUS_GAP_*) scale down by
 // the same ratio the node cap scales up (NODE_SIZE_SCALE_DRAWINGS), so
@@ -760,8 +760,8 @@ renderLayersList();
 sendConfigUpdate();
 
 // ---- Classification pane ----
-const predictedClassEl = document.getElementById("predicted-class");
 const probBarsEl = document.getElementById("prob-bars");
+const predictionSummaryEl = document.getElementById("prediction-summary");
 
 // Rebuilt from scratch on every mode_selected (initial connect, an explicit
 // mode switch, or a Drawings-mode reroll) since numClasses/classLabels
@@ -819,8 +819,43 @@ function renderClassification(probs, predicted) {
     const dot = document.getElementById(`node-dot-${d}`);
     if (dot) dot.style.background = color;
   }
-  predictedClassEl.textContent =
-    predicted === null || predicted === undefined ? "-" : currentClassLabels()[predicted];
+  renderPredictionSummary(probs, predicted);
+}
+
+// How many times more probable the top prediction is than the runner-up -
+// decides which of four certainty tiers (see TRANSLATIONS' certainty* keys)
+// to show alongside it. A near-tie against the second class (ratio close to
+// 1) reads as "unknown"; a runaway leader (10x+) reads as "certain".
+const CERTAINTY_RATIO_UNCERTAIN = 1.5;
+const CERTAINTY_RATIO_CONFIDENT = 3;
+const CERTAINTY_RATIO_CERTAIN = 10;
+
+function certaintyLevel(topProb, secondProb) {
+  const ratio = secondProb > 0 ? topProb / secondProb : Infinity;
+  if (ratio < CERTAINTY_RATIO_UNCERTAIN) return "Unknown";
+  if (ratio < CERTAINTY_RATIO_CONFIDENT) return "Uncertain";
+  if (ratio < CERTAINTY_RATIO_CERTAIN) return "Confident";
+  return "Certain";
+}
+
+// AI Status pane's live "what does it think this is" readout - replaces the
+// old bare predicted-class label that used to sit in the Classification
+// pane. predicted null/undefined (blank canvas, just reset or just switched
+// mode - see resetDrawingState()) shows a plain placeholder instead of a
+// certainty judgment about nothing.
+// Unknown/Uncertain's copy doesn't name the mode's noun ("digit"/"motif"),
+// so unlike Confident/Certain those two keys aren't mode-suffixed - see
+// TRANSLATIONS' certainty* keys.
+function renderPredictionSummary(probs, predicted) {
+  if (predicted === null || predicted === undefined) {
+    predictionSummaryEl.textContent = "-";
+    return;
+  }
+  const sorted = [...probs].sort((a, b) => b - a);
+  const level = certaintyLevel(sorted[0] || 0, sorted[1] || 0);
+  const needsModeSuffix = level === "Confident" || level === "Certain";
+  const suffix = needsModeSuffix ? (currentMode === "drawings" ? "Drawings" : "Digits") : "";
+  predictionSummaryEl.textContent = t(`certainty${level}${suffix}`, currentClassLabels()[predicted]);
 }
 
 // ---- AI status pane ----
@@ -1131,6 +1166,7 @@ function applyTranslations() {
   document.getElementById("config-hint").textContent = t("configHint");
   document.getElementById("classification-heading").textContent = t("classificationHeading");
   document.getElementById("status-heading").textContent = t("aiStatusHeading");
+  document.getElementById("train-btn").textContent = t("train");
   document.getElementById("loss-plot-label").textContent = t("lossLabel");
   document.getElementById("accuracy-plot-label").textContent = t("validationAccuracyLabel");
   document.getElementById("debug-heading").textContent = t("debugHeading");
@@ -1195,6 +1231,13 @@ function handleModeSelected(msg) {
 
   applyModeCopy(msg.mode);
   initProbBars();
+
+  // Debug mode never carries over into a (re)selected mode - always starts
+  // closed, so a fresh Digits/Drawings session starts at its normal
+  // (shorter) height rather than whatever the previous session left it at.
+  debugToggleBtn.classList.remove("active");
+  debugOptionsEl.hidden = true;
+  trainingPlotsEl.hidden = true;
 
   // Make the panels visible before anything below measures their layout
   // (canvas sizing in renderLayersList, getBoundingClientRect in

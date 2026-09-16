@@ -1,6 +1,6 @@
 """Kiosk-wide constants."""
 
-MIN_NODES_PER_LAYER = 10
+MIN_NODES_PER_LAYER = 1
 # Drawings mode allows twice the hidden-layer capacity of Digits - see
 # server/main.py's max_nodes_per_layer_for_mode() and static/app.js's mirror
 # of these two constants, which also scales the on-screen node size/spacing
@@ -35,10 +35,10 @@ EARLY_STOPPING_PATIENCE = 3
 # Digits mode stays at implicit 0.0 (a true no-op for nn.Dropout), so its
 # capacity-vs-overfitting demo (see TRAIN_SUBSET_SIZE below) is unchanged.
 # 0.3 rather than the more common 0.5: layers can be configured as narrow as
-# MIN_NODES_PER_LAYER (10 nodes), where dropping half of an already-small
-# layer per forward pass during training is aggressive; 0.3 still meaningfully
-# regularizes the small (600-image) training set without crippling that end
-# of the configurable range.
+# MIN_NODES_PER_LAYER (down to a single node), where dropping half of an
+# already-small layer per forward pass during training is aggressive; 0.3
+# still meaningfully regularizes the small (600-image) training set without
+# crippling that end of the configurable range.
 DRAWINGS_DROPOUT_RATE = 0.3
 
 # Deliberately small: with the full 60k-image MNIST training set, even a
